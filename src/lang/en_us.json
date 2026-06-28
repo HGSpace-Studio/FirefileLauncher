@@ -1,0 +1,10 @@
+{
+  "app.mainwindow.sidebar.home": "Home",
+  "app.mainwindow.sidebar.library": "Library",
+  "app.mainwindow.sidebar.settings": "Settings",
+  "app.mainwindow.sidebar.collapse": "Collapse",
+  "app.mainwindow.sidebar.expand": "Expand",
+  "app.lang.system": "Follow System",
+  "app.lang.zh_cn": "Chinese (Simplified)",
+  "app.lang.en_us": "English (US)"
+}
