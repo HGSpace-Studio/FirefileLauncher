@@ -6,7 +6,8 @@ import { ListSortDescending } from "@lucide/vue";
 const { t } = useI18n();
 
 const props = defineProps<{
-  navItems: { id: string; label: string; icon: any }[];
+  mainItems: { id: string; label: string; icon: any }[];
+  footerItem?: { id: string; label: string; icon: any };
   activeId?: string;
 }>();
 
@@ -20,11 +21,20 @@ function toggle() {
   expanded.value = !expanded.value;
 }
 
-const translatedItems = computed(() =>
-  props.navItems.map((item) => ({
+const translatedMainItems = computed(() =>
+  props.mainItems.map((item) => ({
     ...item,
     label: t(`app.mainwindow.sidebar.${item.id}`),
   }))
+);
+
+const translatedFooterItem = computed(() =>
+  props.footerItem
+    ? {
+        ...props.footerItem,
+        label: t(`app.mainwindow.sidebar.${props.footerItem.id}`),
+      }
+    : null
 );
 </script>
 
@@ -39,7 +49,7 @@ const translatedItems = computed(() =>
 
       <nav class="nav">
         <button
-          v-for="item in translatedItems"
+          v-for="item in translatedMainItems"
           :key="item.id"
           class="nav-item"
           :class="{ active: activeId === item.id }"
@@ -52,6 +62,20 @@ const translatedItems = computed(() =>
           <span class="nav-tooltip">{{ item.label }}</span>
         </button>
       </nav>
+
+      <div class="nav-footer" v-if="translatedFooterItem">
+        <button
+          class="nav-item"
+          :class="{ active: activeId === translatedFooterItem.id }"
+          @click="emit('update:activeId', translatedFooterItem.id)"
+        >
+          <span class="nav-icon">
+            <component :is="translatedFooterItem.icon" :size="20" />
+          </span>
+          <span class="nav-label">{{ translatedFooterItem.label }}</span>
+          <span class="nav-tooltip">{{ translatedFooterItem.label }}</span>
+        </button>
+      </div>
     </div>
   </aside>
 </template>
@@ -67,17 +91,7 @@ const translatedItems = computed(() =>
   flex-shrink: 0;
   position: relative;
   overflow: visible;
-}
-
-.sidebar::after {
-  content: '';
-  position: absolute;
-  top: -10px;
-  right: 0;
-  width: 10px;
-  height: 10px;
   background: var(--panel-bg);
-  border-bottom-right-radius: 10px;
 }
 
 .sidebar.expanded {
@@ -116,6 +130,11 @@ const translatedItems = computed(() =>
   flex-direction: column;
   gap: 2px;
   margin-top: 8px;
+}
+
+.nav-footer {
+  margin-top: auto;
+  padding-top: 4px;
 }
 
 .nav-icon {
@@ -183,29 +202,5 @@ const translatedItems = computed(() =>
 
 .expanded .nav-label {
   opacity: 0.85;
-}
-
-@media (prefers-color-scheme: light) {
-  .sidebar {
-    background: var(--panel-bg);
-    --sidebar-color: #1d1d1f;
-    --sidebar-hover: rgba(0, 0, 0, 0.08);
-    --sidebar-active: rgba(0, 120, 212, 0.15);
-    --sidebar-active-color: #0078d4;
-    --tooltip-bg: #1d1d1f;
-    --tooltip-color: #f5f5f7;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  .sidebar {
-    background: var(--panel-bg);
-    --sidebar-color: #e0e0e0;
-    --sidebar-hover: rgba(255, 255, 255, 0.08);
-    --sidebar-active: rgba(59, 130, 246, 0.2);
-    --sidebar-active-color: #60a5fa;
-    --tooltip-bg: #e0e0e0;
-    --tooltip-color: #1d1d1f;
-  }
 }
 </style>

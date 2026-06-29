@@ -1,29 +1,21 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
-import { useI18n } from "vue-i18n";
-import { getSystemLocale } from "./i18n";
+import { onMounted, ref } from "vue";
 import Sidebar from "./components/Sidebar.vue";
-import { Home, Settings, Library } from "@lucide/vue";
+import { Home, Settings, LayoutGridIcon } from "@lucide/vue";
 import logo from "./assets/logos/logo.png";
-
-const { locale } = useI18n();
-
-const currentLang = ref("system");
-
-watch(currentLang, (val) => {
-  locale.value = val === "system" ? getSystemLocale() : val;
-});
+import SettingsInterface from "./components/settings_interface.vue";
 
 const isMac = ref(false);
 const isLinux = ref(false);
 const isMaximized = ref(false);
 let appWindow: any = null;
 
-const navItems = [
+const mainItems = [
   { id: "home", label: "首页", icon: Home },
-  { id: "library", label: "库", icon: Library },
-  { id: "settings", label: "设置", icon: Settings },
+  { id: "library", label: "库", icon: LayoutGridIcon },
 ];
+
+const footerItem = { id: "settings", label: "设置", icon: Settings };
 
 const activeNav = ref("home");
 
@@ -64,13 +56,7 @@ function closeWindow() {
       <img class="logo" :src="logo" alt="" />
       <span class="logo-text">Firefiles Launcher</span>
     </div>
-    <span class="title">
-      <select class="lang-select" v-model="currentLang">
-        <option value="system">{{ $t("app.lang.system") }}</option>
-        <option value="zh_cn">{{ $t("app.lang.zh_cn") }}</option>
-        <option value="en_us">{{ $t("app.lang.en_us") }}</option>
-      </select>
-    </span>
+    <span class="title"></span>
     <div v-if="!isMac" class="win-controls">
       <button class="win-btn" @click="minimize">
         <svg width="12" height="12" viewBox="0 0 12 12">
@@ -95,9 +81,10 @@ function closeWindow() {
     </div>
   </div>
   <div class="viewport">
-    <Sidebar :navItems="navItems" v-model:activeId="activeNav" />
+    <Sidebar :mainItems="mainItems" :footerItem="footerItem" v-model:activeId="activeNav" />
     <main class="content">
-      <p>{{ activeNav }}</p>
+      <SettingsInterface v-if="activeNav === 'settings'" @close="activeNav = 'home'" />
+      <p v-else>{{ activeNav }}</p>
     </main>
   </div>
 </template>
@@ -122,10 +109,11 @@ html {
 }
 
 body {
-  font-family: "HarmonyOS Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
+  font-family: var(--app-font, "HarmonyOS Sans"), -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, Helvetica, Arial, sans-serif;
   overflow: hidden;
   height: 100vh;
+  background: var(--panel-bg);
 }
 
 .titlebar {
@@ -133,6 +121,7 @@ body {
   align-items: center;
   height: 38px;
   user-select: none;
+  background: var(--panel-bg);
 }
 
 .traffic-light-area {
@@ -172,7 +161,7 @@ body {
 
 .titlebar.is-win,
 .titlebar.is-linux {
-  padding-right: 16px;
+  padding-right: 0px;
 }
 
 .title {
@@ -181,36 +170,6 @@ body {
   font-size: 13px;
   font-weight: 600;
   opacity: 0.85;
-  padding-right: 70px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.lang-select {
-  appearance: none;
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 2px 8px;
-  font-size: 12px;
-  font-family: inherit;
-  color: inherit;
-  cursor: pointer;
-  outline: none;
-  transition: border-color 0.15s;
-}
-
-.lang-select:hover {
-  border-color: rgba(128, 128, 128, 0.3);
-}
-
-.lang-select:focus {
-  border-color: rgba(128, 128, 128, 0.5);
-}
-
-.lang-select option {
-  background: var(--panel-bg);
   color: var(--title-color);
 }
 
@@ -228,7 +187,7 @@ body {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  color: inherit;
+  color: var(--title-color);
   transition: background 0.1s;
 }
 
@@ -244,6 +203,7 @@ body {
 .viewport {
   height: calc(100vh - 38px);
   display: flex;
+  background: var(--content-bg);
 }
 
 .content {
@@ -262,18 +222,14 @@ body {
   :root {
     --panel-bg: #ececec;
     --title-color: #1d1d1f;
-  }
-  body {
-    background: #ececec;
-  }
-  .titlebar {
-    background: var(--panel-bg);
-  }
-  .title {
-    color: var(--title-color);
-  }
-  .viewport {
-    background: #f6f6f6;
+    --sidebar-color: #1d1d1f;
+    --sidebar-hover: rgba(0, 0, 0, 0.08);
+    --sidebar-active: rgba(0, 120, 212, 0.15);
+    --sidebar-active-color: #0078d4;
+    --tooltip-bg: #1d1d1f;
+    --tooltip-color: #f5f5f7;
+    --content-bg: #f6f6f6;
+    --settings-icon-bg: #0078d4;
   }
 }
 
@@ -281,18 +237,14 @@ body {
   :root {
     --panel-bg: #2d2d2d;
     --title-color: #f5f5f7;
-  }
-  body {
-    background: #2d2d2d;
-  }
-  .titlebar {
-    background: var(--panel-bg);
-  }
-  .title {
-    color: var(--title-color);
-  }
-  .viewport {
-    background: #1c1c1e;
+    --sidebar-color: #e0e0e0;
+    --sidebar-hover: rgba(255, 255, 255, 0.08);
+    --sidebar-active: rgba(59, 130, 246, 0.2);
+    --sidebar-active-color: #60a5fa;
+    --tooltip-bg: #e0e0e0;
+    --tooltip-color: #1d1d1f;
+    --content-bg: #1c1c1e;
+    --settings-icon-bg: #60a5fa;
   }
   .win-btn:hover {
     background: rgba(255, 255, 255, 0.1);
@@ -301,5 +253,40 @@ body {
     background: #e81123;
     color: #fff;
   }
+}
+
+html[data-theme="light"] {
+  --panel-bg: #ececec;
+  --title-color: #1d1d1f;
+  --sidebar-color: #1d1d1f;
+  --sidebar-hover: rgba(0, 0, 0, 0.08);
+  --sidebar-active: rgba(0, 120, 212, 0.15);
+  --sidebar-active-color: #0078d4;
+  --tooltip-bg: #1d1d1f;
+  --tooltip-color: #f5f5f7;
+  --content-bg: #f6f6f6;
+  --settings-icon-bg: #0078d4;
+}
+
+html[data-theme="dark"] {
+  --panel-bg: #2d2d2d;
+  --title-color: #f5f5f7;
+  --sidebar-color: #e0e0e0;
+  --sidebar-hover: rgba(255, 255, 255, 0.08);
+  --sidebar-active: rgba(59, 130, 246, 0.2);
+  --sidebar-active-color: #60a5fa;
+  --tooltip-bg: #e0e0e0;
+  --tooltip-color: #1d1d1f;
+  --content-bg: #1c1c1e;
+  --settings-icon-bg: #60a5fa;
+}
+
+html[data-theme="dark"] .win-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .win-btn.close:hover {
+  background: #e81123;
+  color: #fff;
 }
 </style>
