@@ -88,18 +88,32 @@ jobs:
           echo "CXX_aarch64_unknown_linux_gnu=aarch64-linux-gnu-g++" >> $GITHUB_ENV
           echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
 
+      - name: Set macOS product name
+        if: runner.os == 'macOS'
+        run: |
+          jq '.productName = "Firefiles Launcher"' src-tauri/tauri.conf.json > tmp.json \
+            && mv tmp.json src-tauri/tauri.conf.json
+
       - name: Build Tauri app
         run: npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      - name: Stage artifacts
+        run: |
+          mkdir -p staging
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            cp src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg staging/
+          else
+            find src-tauri/target/${{ matrix.target }}/release/bundle -type f -exec cp {} staging/ \;
+          fi
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: firefile_launcher_${{ matrix.name }}
-          path: |
-            src-tauri/target/${{ matrix.target }}/release/bundle/**/*
+          path: staging/*
           if-no-files-found: warn
 
   release:
