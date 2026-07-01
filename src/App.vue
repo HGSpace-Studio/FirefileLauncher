@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import Sidebar from "./components/Sidebar.vue";
-import { Home, Settings, LayoutGridIcon } from "@lucide/vue";
+import { Home, Settings, LayoutGridIcon, Store, Plus } from "@lucide/vue";
 import logo from "./assets/logos/logo.png";
 import SettingsInterface from "./components/settings_interface.vue";
+import NewMciRoot from "./components/view/new_mci/root_interface.vue";
+import HomePage from "./components/view/HomePage.vue";
 
 const isMac = ref(false);
 const isLinux = ref(false);
@@ -12,12 +14,30 @@ let appWindow: any = null;
 
 const mainItems = [
   { id: "home", label: "首页", icon: Home },
+  
+  { id: "resourcescenter", label: "资源中心", icon: Store },
   { id: "library", label: "库", icon: LayoutGridIcon },
+  { id: "add-instance", label: "新建实例", icon: Plus, highlight: true },
 ];
 
 const footerItem = { id: "settings", label: "设置", icon: Settings };
 
 const activeNav = ref("home");
+
+const showSettings = ref(false);
+const showNewInstance = ref(false);
+
+function onNavChange(id: string) {
+  if (id === "settings") {
+    showSettings.value = true;
+    return;
+  }
+  if (id === "add-instance") {
+    showNewInstance.value = true;
+    return;
+  }
+  activeNav.value = id;
+}
 
 onMounted(async () => {
   document.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -81,12 +101,17 @@ function closeWindow() {
     </div>
   </div>
   <div class="viewport">
-    <Sidebar :mainItems="mainItems" :footerItem="footerItem" v-model:activeId="activeNav" />
+    <Sidebar :mainItems="mainItems" :footerItem="footerItem" :activeId="activeNav" @update:active-id="onNavChange" />
     <main class="content">
-      <SettingsInterface v-if="activeNav === 'settings'" @close="activeNav = 'home'" />
-      <p v-else>{{ activeNav }}</p>
+      <HomePage v-if="activeNav === 'home'" />
+      <div v-else-if="activeNav === 'library'" class="nav-placeholder">{{ activeNav }}</div>
+      <div v-else-if="activeNav === 'resourcescenter'" class="nav-placeholder">{{ activeNav }}</div>
     </main>
+    <SettingsInterface v-if="showSettings" @close="showSettings = false" />
+    <NewMciRoot v-if="showNewInstance" @close="showNewInstance = false" />
   </div>
+  <SettingsInterface v-if="showSettings" @close="showSettings = false" />
+  <NewMciRoot v-if="showNewInstance" @close="showNewInstance = false" />
 </template>
 
 <style>
@@ -209,11 +234,14 @@ body {
 .content {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
-.content p {
+.nav-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 14px;
   opacity: 0.6;
 }

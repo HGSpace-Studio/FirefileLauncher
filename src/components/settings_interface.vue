@@ -2,7 +2,10 @@
 import { ref, watch, onMounted, onUnmounted, computed } from "vue";
 import { useI18n } from "vue-i18n";
 import { getSystemLocale } from "../i18n";
-import { Settings, Languages, Palette, X } from "@lucide/vue";
+import { invoke } from "@tauri-apps/api/core";
+import { Settings, Languages, Palette, Info, GitPullRequestArrow, X, Coffee, LoaderCircle, ChevronDown } from "@lucide/vue";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import logo from "../assets/logos/logo.png";
 
 const emit = defineEmits<{
   (e: "close"): void;
@@ -83,6 +86,50 @@ function getFontStyle(f: string) {
   return f !== DEFAULT_FONT ? { fontFamily: `"${f}"` } : {};
 }
 
+interface JavaInstall {
+  path: string;
+  version: string;
+}
+
+const javaInstalls = ref<JavaInstall[]>([]);
+const javaLoading = ref(false);
+const javaError = ref("");
+const javaExpanded = ref(true);
+
+interface SystemMemory {
+  total_mb: number;
+  used_mb: number;
+}
+
+const sysMem = ref<SystemMemory>({ total_mb: 0, used_mb: 0 });
+const autoMem = ref(true);
+
+const usedPercent = computed(() => {
+  if (sysMem.value.total_mb === 0) return 0;
+  return Math.round((sysMem.value.used_mb / sysMem.value.total_mb) * 100);
+});
+
+const freePercent = computed(() => {
+  return Math.max(0, 100 - usedPercent.value);
+});
+
+function cleanVersion(raw: string): string {
+  const m = raw.match(/"([^"]+)"/);
+  return m ? m[1] : raw;
+}
+
+async function fetchJavaVersions() {
+  javaLoading.value = true;
+  javaError.value = "";
+  try {
+    javaInstalls.value = await invoke<JavaInstall[]>("get_java_versions");
+  } catch (e: any) {
+    javaError.value = String(e);
+  } finally {
+    javaLoading.value = false;
+  }
+}
+
 function onDocMouseDown(e: MouseEvent) {
   if (fontDropdownOpen.value && fontSelectRef.value && !fontSelectRef.value.contains(e.target as Node)) {
     fontDropdownOpen.value = false;
@@ -91,6 +138,8 @@ function onDocMouseDown(e: MouseEvent) {
 
 onMounted(() => {
   loadFonts();
+  fetchJavaVersions();
+  invoke<SystemMemory>("get_system_memory").then((m) => { sysMem.value = m; }).catch(() => {});
   document.addEventListener("mousedown", onDocMouseDown);
 });
 
@@ -118,6 +167,15 @@ onUnmounted(() => {
         <nav class="settings-nav">
           <button
             class="settings-nav-item"
+            :class="{ active: activeSetting === 'java-runtime' }"
+            @click="activeSetting = 'java-runtime'"
+          >
+            <Coffee :size="18" />
+            <span>{{ t("app.mainwindow.settings.java-runtime") }}</span>
+          </button>
+          <div class="settings-nav-divider"></div>
+          <button
+            class="settings-nav-item"
             :class="{ active: activeSetting === 'appearance' }"
             @click="activeSetting = 'appearance'"
           >
@@ -132,8 +190,77 @@ onUnmounted(() => {
             <Languages :size="18" />
             <span>{{ t("app.mainwindow.settings.language") }}</span>
           </button>
+          <button
+            class="settings-nav-item"
+            :class="{ active: activeSetting === 'about' }"
+            @click="activeSetting = 'about'"
+          >
+            <Info :size="18" />
+            <span>{{ t("app.mainwindow.settings.about") }}</span>
+          </button>
         </nav>
         <div class="settings-content">
+          <div v-if="activeSetting === 'java-runtime'" class="setting-panel">
+            <div class="expander-group">
+              <div class="expander-header" @click="javaExpanded = !javaExpanded">
+                <div class="setting-card-info">
+                  <label class="setting-label">Java 运行环境</label>
+                  <span class="setting-desc">检测到的 Java 安装</span>
+                </div>
+                <div class="expander-right">
+                  <button class="refresh-btn" @click.stop="fetchJavaVersions" :disabled="javaLoading">
+                    <LoaderCircle v-if="javaLoading" :size="14" class="spinner" />
+                    <span v-else>刷新</span>
+                  </button>
+                  <ChevronDown :size="18" class="expander-chevron" :class="{ expanded: javaExpanded }" />
+                </div>
+              </div>
+              <Transition name="expander">
+                <div v-if="javaExpanded" class="expander-body">
+                  <div v-if="javaError" class="java-error">{{ javaError }}</div>
+                  <div v-if="javaInstalls.length === 0 && !javaLoading && !javaError" class="java-empty">
+                    未检测到 Java 安装
+                  </div>
+                  <div v-for="(jv, idx) in javaInstalls" :key="jv.path" class="java-item" :class="{ last: idx === javaInstalls.length - 1 }">
+                    <div class="java-item-divider"></div>
+                    <span class="java-item-version">{{ cleanVersion(jv.version) }}</span>
+                    <span class="java-item-path">{{ jv.path }}</span>
+                  </div>
+                </div>
+              </Transition>
+            </div>
+            <div class="expander-group">
+              <div class="expander-header">
+                <div class="setting-card-info">
+                  <label class="setting-label">游戏运行分配</label>
+                  <span class="setting-desc">设置 Minecraft 实例可运行的运存容量</span>
+                </div>
+              </div>
+              <div class="expander-body">
+                  <div class="mem-item">
+                    <div class="mem-item-row">
+                      <div class="mem-item-info">
+                        <span class="mem-item-label">自动分配</span>
+                        <span class="mem-item-desc">根据计算机已用运行内存情况分配</span>
+                      </div>
+                      <label class="switch">
+                        <input type="checkbox" v-model="autoMem" />
+                        <span class="switch-slider"></span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="mem-item">
+                    <div class="mem-slider">
+                      <div class="mem-slider-bar">
+                        <div class="mem-slider-segment mem-slider-used" :style="{ width: usedPercent + '%' }"></div>
+                        <div class="mem-slider-segment mem-slider-free" :style="{ width: freePercent + '%' }"></div>
+                      </div>
+                    </div>
+                    <span class="mem-status">您的计算机一共有 {{ sysMem.total_mb }} MB，已经用了 {{ sysMem.used_mb }} MB</span>
+                  </div>
+                </div>
+            </div>
+          </div>
           <div v-if="activeSetting === 'appearance'" class="setting-panel">
             <div class="setting-card">
               <div class="setting-card-info">
@@ -193,7 +320,11 @@ onUnmounted(() => {
                 <select v-model="currentLang">
                   <option value="system">{{ t("app.lang.system") }}</option>
                   <option value="zh_cn">{{ t("app.lang.zh_cn") }}</option>
+                  <option value="ko_kr">{{ t("app.lang.ko_kr") }}</option>
                   <option value="en_us">{{ t("app.lang.en_us") }}</option>
+                  <option value="fr">{{ t("app.lang.fr") }}</option>
+                  <option value="ru">{{ t("app.lang.ru") }}</option>
+                  <option value="vi">{{ t("app.lang.vi") }}</option>
                 </select>
                 <span class="select-arrow">
                   <svg width="10" height="10" viewBox="0 0 10 10">
@@ -201,6 +332,26 @@ onUnmounted(() => {
                   </svg>
                 </span>
               </div>
+            </div>
+            <p class="language-notice">{{ t("app.mainwindow.settings.languageNotice") }}</p>
+          </div>
+          <div v-if="activeSetting === 'about'" class="setting-panel about-panel">
+            <div class="setting-card about-card">
+              <div class="about-info">
+                <img :src="logo" class="about-logo" alt="logo" />
+                <div class="about-meta">
+                  <span class="about-name">{{ t("app.mainwindow.settings.about.name") }}</span>
+                  <span class="about-version">{{ t("app.mainwindow.settings.about.version") }}</span>
+                  
+                </div>
+              </div>
+              <button class="about-link-btn" @click="openUrl('https://github.com/HGSpace-Studio/FirefileLauncher')">
+                <GitPullRequestArrow :size="16" />
+                <span>GitHub</span>
+              </button>
+            </div>
+            <div class="setting-card about-desc-card">
+              <span class="about-desc-text">{{ t("app.mainwindow.settings.about.desc") }}</span>
             </div>
           </div>
         </div>
@@ -352,6 +503,12 @@ onUnmounted(() => {
 .settings-nav-item.active {
   background: var(--sidebar-active);
   color: var(--sidebar-active-color);
+}
+
+.settings-nav-divider {
+  height: 1px;
+  background: rgba(128, 128, 128, 0.2);
+  margin: 6px 12px;
 }
 
 .settings-content {
@@ -519,5 +676,343 @@ onUnmounted(() => {
 
 .reset-btn:hover {
   background: var(--sidebar-active);
+}
+
+.language-notice {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--title-color);
+  opacity: 0.5;
+  padding: 0 4px;
+  margin: 0;
+}
+
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 14px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--sidebar-active-color);
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.refresh-btn:hover:not(:disabled) {
+  background: var(--sidebar-active);
+}
+
+.refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.expander-group {
+  background: var(--panel-bg);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.expander-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  cursor: pointer;
+}
+
+.expander-header:active {
+  opacity: 0.8;
+}
+
+.expander-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.expander-chevron {
+  color: var(--title-color);
+  opacity: 0.4;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.expander-chevron.expanded {
+  transform: rotate(180deg);
+}
+
+.expander-body {
+  display: flex;
+  flex-direction: column;
+}
+
+.expander-enter-active,
+.expander-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.expander-enter-from,
+.expander-leave-to {
+  opacity: 0;
+}
+
+.java-error {
+  font-size: 12px;
+  color: #e74c3c;
+  padding: 8px 16px;
+  opacity: 0.8;
+}
+
+.java-empty {
+  font-size: 12px;
+  color: var(--title-color);
+  opacity: 0.45;
+  padding: 16px;
+  text-align: center;
+}
+
+.java-item {
+  padding: 6px 16px;
+}
+
+.java-item.last {
+  border-radius: 0 0 10px 10px;
+  padding-bottom: 8px;
+}
+
+.java-item-divider {
+  height: 1px;
+  background: rgba(128, 128, 128, 0.15);
+  margin: 0 -16px 6px;
+}
+
+.java-item-version {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--title-color);
+  line-height: 1.2;
+}
+
+.java-item-path {
+  display: block;
+  font-size: 11px;
+  color: var(--title-color);
+  opacity: 0.5;
+  line-height: 1;
+  word-break: break-all;
+  margin-top: 2px;
+}
+
+.mem-item {
+  padding: 12px 16px;
+}
+
+.mem-item-divider {
+  height: 1px;
+  background: rgba(128, 128, 128, 0.15);
+  margin: 0 -16px 6px;
+}
+
+.mem-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.mem-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.mem-item-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--title-color);
+  line-height: 1.2;
+}
+
+.mem-item-desc {
+  font-size: 11px;
+  color: var(--title-color);
+  opacity: 0.5;
+  line-height: 1;
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switch-slider {
+  position: absolute;
+  inset: 0;
+  background: rgba(128, 128, 128, 0.3);
+  border-radius: 11px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.switch-slider::before {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  left: 2px;
+  bottom: 2px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.switch input:checked + .switch-slider {
+  background: #0078d4;
+}
+
+.switch input:checked + .switch-slider::before {
+  transform: translateX(18px);
+}
+
+.mem-slider {
+  padding: 0 0 6px;
+  margin-top: 3px;
+}
+
+.mem-slider-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  background: rgba(128, 128, 128, 0.15);
+}
+
+.mem-slider-segment {
+  transition: width 0.3s ease;
+}
+
+.mem-slider-used {
+  background: #0078d4;
+}
+
+.mem-slider-free {
+  background: rgba(128, 128, 128, 0.2);
+}
+
+.mem-status {
+  display: block;
+  font-size: 11px;
+  color: var(--title-color);
+  opacity: 0.45;
+  line-height: 1;
+  padding-bottom: 8px;
+}
+
+.about-panel {
+  gap: 0;
+}
+
+.about-card {
+  padding: 16px;
+}
+
+.about-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.about-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.about-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.about-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--title-color);
+}
+
+.about-version {
+  font-size: 12px;
+  color: var(--title-color);
+  opacity: 0.6;
+}
+
+.about-desc {
+  font-size: 11px;
+  color: var(--title-color);
+  opacity: 0.45;
+  line-height: 1.4;
+}
+
+.about-link-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--title-color);
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.about-link-btn:hover {
+  opacity: 1;
+  background: rgba(128, 128, 128, 0.12);
+}
+
+.about-desc-card {
+  margin-top: 7px;
+  padding: 14px 16px;
+}
+
+.about-desc-text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--title-color);
+  opacity: 0.55;
 }
 </style>

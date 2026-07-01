@@ -6,7 +6,7 @@ import { ListSortDescending } from "@lucide/vue";
 const { t } = useI18n();
 
 const props = defineProps<{
-  mainItems: { id: string; label: string; icon: any }[];
+  mainItems: { id: string; label: string; icon: any; highlight?: boolean }[];
   footerItem?: { id: string; label: string; icon: any };
   activeId?: string;
 }>();
@@ -52,7 +52,7 @@ const translatedFooterItem = computed(() =>
           v-for="item in translatedMainItems"
           :key="item.id"
           class="nav-item"
-          :class="{ active: activeId === item.id }"
+          :class="{ active: activeId === item.id, highlight: item.highlight }"
           @click="emit('update:activeId', item.id)"
         >
           <span class="nav-icon">
@@ -61,7 +61,10 @@ const translatedFooterItem = computed(() =>
           <span class="nav-label">{{ item.label }}</span>
           <span class="nav-tooltip">{{ item.label }}</span>
         </button>
+        <div class="nav-divider"></div>
       </nav>
+
+      <span class="section-label">{{ t("app.mainwindow.sidebar.pinned") }}</span>
 
       <div class="nav-footer" v-if="translatedFooterItem">
         <button
@@ -137,6 +140,27 @@ const translatedFooterItem = computed(() =>
   padding-top: 4px;
 }
 
+.nav-divider {
+  height: 1px;
+  background: rgba(128, 128, 128, 0.2);
+  margin: 6px 8px 4px;
+}
+
+.section-label {
+  display: block;
+  padding: 0 8px;
+  margin-top: 3px;
+  font-size: 11px;
+  opacity: 0;
+  color: var(--sidebar-color);
+  transition: opacity 0.2s ease;
+  user-select: none;
+}
+
+.expanded .section-label {
+  opacity: 0.5;
+}
+
 .nav-icon {
   width: 20px;
   height: 20px;
@@ -171,6 +195,31 @@ const translatedFooterItem = computed(() =>
 .nav-item.active {
   background: var(--sidebar-active);
   color: var(--sidebar-active-color);
+}
+
+.nav-item.highlight {
+  background: rgba(0, 120, 212, 0.1);
+  color: var(--sidebar-active-color);
+  border: 1px solid rgba(0, 120, 212, 0.3);
+  border-radius: 50%;
+  transition: border-radius 0.25s ease, background 0.15s;
+  margin-top: 4px;
+  width: 36px;
+  height: 36px;
+}
+
+.expanded .nav-item.highlight {
+  border-radius: 18px;
+  width: 100%;
+  height: auto;
+}
+
+.expanded .nav-item.highlight {
+  border-radius: 18px;
+}
+
+.nav-item.highlight:hover {
+  background: rgba(0, 120, 212, 0.18);
 }
 
 .nav-tooltip {

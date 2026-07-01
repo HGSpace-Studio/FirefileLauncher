@@ -1,0 +1,929 @@
+<script setup lang="ts">
+import { ref, computed, watch } from "vue";
+import { onMounted, onUnmounted } from "vue";
+import { useI18n } from "vue-i18n";
+import { PackagePlus, Package, X, Box, ChevronRight, ChevronDown, LoaderCircle, Anvil, ArrowRight, ArrowLeft, Info } from "@lucide/vue";
+import { invoke } from "@tauri-apps/api/core";
+import fabricIcon from "../../../assets/imgs/mod_loader_imgs/fabric.png";
+import mcIcon from "../../../assets/imgs/mc_oringin.png";
+import McVersionSelection from "./mcverselection_interface.vue";
+
+interface FabricVersion {
+  separator: string;
+  build: number;
+  maven: string;
+  version: string;
+  stable: boolean;
+}
+
+interface ForgeBuild {
+  id: string;
+  build: number;
+  version: string;
+  mcversion: string;
+  modified: string;
+}
+
+const emit = defineEmits<{
+  (e: "close"): void;
+}>();
+
+const { t } = useI18n();
+
+const loading = ref(true);
+const fabricDropdownOpen = ref(false);
+const selectedFabricVersion = ref("");
+const fabricVersions = ref<string[]>([]);
+const fabricSelectRef = ref<HTMLElement | null>(null);
+const loaderEnabled = ref(false);
+const forgeEnabled = ref(false);
+const forgeDropdownOpen = ref(false);
+const selectedForgeVersion = ref("");
+const forgeVersions = ref<string[]>([]);
+const forgeSelectRef = ref<HTMLElement | null>(null);
+const hoveredTooltip = ref<'fabric' | 'forge' | null>(null);
+const loadError = ref("");
+const instanceName = ref("");
+const selectedMcVersion = ref("1.21.8");
+
+const canProceed = computed(() => selectedMcVersion.value.length > 0 && instanceName.value.trim().length > 0);
+
+function buildInstanceName(): string {
+  let name = selectedMcVersion.value;
+  if (loaderEnabled.value && selectedFabricVersion.value) {
+    name += ` Fabric ${selectedFabricVersion.value}`;
+  } else if (forgeEnabled.value && selectedForgeVersion.value) {
+    name += ` Forge ${selectedForgeVersion.value}`;
+  }
+  return name;
+}
+
+watch(selectedMcVersion, () => {
+  if (selectedMcVersion.value) {
+    instanceName.value = buildInstanceName();
+  }
+});
+
+watch([loaderEnabled, forgeEnabled, selectedFabricVersion, selectedForgeVersion], () => {
+  if (selectedMcVersion.value) {
+    instanceName.value = buildInstanceName();
+  }
+});
+
+const viewState = ref<'root' | 'mc-version'>('root');
+
+function toggleFabric() {
+  if (forgeEnabled.value) return;
+  loaderEnabled.value = !loaderEnabled.value;
+}
+
+function toggleForge() {
+  if (loaderEnabled.value) return;
+  forgeEnabled.value = !forgeEnabled.value;
+}
+
+const forgeLoading = ref(false);
+
+async function fetchForgeVersions(mcVersion: string) {
+  forgeLoading.value = true;
+  try {
+    const forgeList = await invoke<ForgeBuild[]>("get_forge_versions", {
+      mcVersion,
+    });
+    forgeVersions.value = forgeList.map((v) => v.version).reverse();
+    if (forgeVersions.value.length > 0) {
+      selectedForgeVersion.value = forgeVersions.value[0];
+    }
+  } catch {
+    // keep current list
+  } finally {
+    forgeLoading.value = false;
+  }
+}
+
+onMounted(async () => {
+  try {
+    const [fabricList] = await Promise.all([
+      invoke<FabricVersion[]>("get_fabric_versions"),
+    ]);
+    fabricVersions.value = fabricList.map((v) => v.version);
+    if (fabricVersions.value.length > 0) {
+      selectedFabricVersion.value = fabricVersions.value[0];
+    }
+  } catch (e: any) {
+    loadError.value = String(e);
+  } finally {
+    loading.value = false;
+  }
+  document.addEventListener("mousedown", onDocMouseDown);
+  fetchForgeVersions(selectedMcVersion.value);
+});
+
+watch(selectedMcVersion, (newVer) => {
+  if (newVer) {
+    fetchForgeVersions(newVer);
+  }
+});
+
+onUnmounted(() => document.removeEventListener("mousedown", onDocMouseDown));
+
+function onDocMouseDown(e: MouseEvent) {
+  if (fabricDropdownOpen.value && fabricSelectRef.value && !fabricSelectRef.value.contains(e.target as Node)) {
+    fabricDropdownOpen.value = false;
+  }
+  if (forgeDropdownOpen.value && forgeSelectRef.value && !forgeSelectRef.value.contains(e.target as Node)) {
+    forgeDropdownOpen.value = false;
+  }
+}
+
+const overlayRef = ref<HTMLElement | null>(null);
+
+function onOverlayClick(e: MouseEvent) {
+  if (e.target === overlayRef.value) {
+    emit("close");
+  }
+}
+</script>
+
+<template>
+  <div class="overlay" ref="overlayRef" @click="onOverlayClick">
+    <div class="window">
+      <Transition name="slide" mode="out-in">
+        <div class="view-wrapper" :key="viewState">
+          <template v-if="viewState === 'root'">
+        <div class="header">
+          <div class="header-left">
+            <span class="icon-wrap">
+              <PackagePlus :size="16" class="icon" />
+            </span>
+            <span class="title">{{ t("app.mainwindow.sidebar.add-instance") }}</span>
+          </div>
+          <button class="close-btn" @click="emit('close')">
+            <X :size="18" />
+          </button>
+        </div>
+        <div class="divider"></div>
+        <div class="body">
+          <div class="top-row">
+            <div class="icon-box">
+              <div v-if="forgeEnabled" class="icon-preview icon-preview-anvil">
+                <Anvil :size="32" />
+              </div>
+              <div v-else class="icon-preview" :style="{ backgroundImage: `url(${loaderEnabled ? fabricIcon : mcIcon})` }"></div>
+            </div>
+            <div class="name-area">
+              <label class="name-label">{{ t("app.mainwindow.addinstance.nameLabel") }}</label>
+              <input class="name-input" type="text" :placeholder="selectedMcVersion || t('app.mainwindow.addinstance.namePlaceholder')" v-model="instanceName" />
+            </div>
+          </div>
+          <div class="section-divider"></div>
+          <div class="card-row" :class="{ 'card-row-loading': loading }">
+            <div v-if="loading" class="loading-overlay">
+              <LoaderCircle :size="20" class="spinner" />
+              <span>{{ t("app.mainwindow.addinstance.loading") }}</span>
+            </div>
+            <div v-else-if="loadError" class="loading-overlay error">
+              <span>{{ t("app.mainwindow.addinstance.loadError") }} {{ loadError }}</span>
+            </div>
+            <template v-else>
+              <div class="version-card" @click="viewState = 'mc-version'">
+                <div class="version-section">
+                  <div class="cube-wrap">
+                    <Box :size="25" class="cube-icon" />
+                  </div>
+                  <div class="version-info">
+                    <span class="version-sub">{{ t("app.mainwindow.addinstance.versionSub") }}</span>
+                    <span class="version-value">{{ selectedMcVersion }}</span>
+                  </div>
+                </div>
+                <ChevronRight :size="18" class="card-arrow" />
+              </div>
+              <div class="v-divider"></div>
+              <div class="loaders-area">
+                <div class="loader-row">
+                  <div class="btn-wrap">
+                    <button
+                      class="loader-btn"
+                      :class="{ active: loaderEnabled, blocked: forgeEnabled }"
+                      @click="toggleFabric"
+                      @mouseenter="forgeEnabled && (hoveredTooltip = 'fabric')"
+                      @mouseleave="hoveredTooltip = null"
+                    >
+                      <img :src="fabricIcon" class="loader-icon" />
+                      <span>Fabric</span>
+                    </button>
+                    <span v-if="hoveredTooltip === 'fabric'" class="btn-tooltip">{{ t("app.mainwindow.addinstance.tooltipConflict") }}</span>
+                  </div>
+                  <div class="version-combobox" ref="fabricSelectRef">
+                    <button
+                      class="combo-trigger"
+                      :class="{ disabled: !loaderEnabled }"
+                      :disabled="!loaderEnabled"
+                      @click.stop="loaderEnabled && (fabricDropdownOpen = !fabricDropdownOpen)"
+                    >
+                      <span class="combo-text">{{ selectedFabricVersion || t('app.mainwindow.addinstance.noSelection') }}</span>
+                      <ChevronDown :size="14" class="combo-arrow" />
+                    </button>
+                    <div v-if="fabricDropdownOpen" class="combo-dropdown">
+                      <button
+                        v-for="v in fabricVersions"
+                        :key="v"
+                        class="combo-option"
+                        :class="{ active: v === selectedFabricVersion }"
+                        @click="selectedFabricVersion = v; fabricDropdownOpen = false"
+                      >{{ v }}</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="loader-row">
+                  <div class="btn-wrap">
+                    <button
+                      class="loader-btn"
+                      :class="{ active: forgeEnabled, blocked: loaderEnabled }"
+                      @click="toggleForge"
+                      @mouseenter="loaderEnabled && (hoveredTooltip = 'forge')"
+                      @mouseleave="hoveredTooltip = null"
+                    >
+                      <Anvil :size="20" class="loader-icon" />
+                      <span>Forge</span>
+                    </button>
+                    <span v-if="hoveredTooltip === 'forge'" class="btn-tooltip">{{ t("app.mainwindow.addinstance.tooltipConflict") }}</span>
+                  </div>
+                  <div class="version-combobox" ref="forgeSelectRef">
+                    <button
+                      class="combo-trigger"
+                      :class="{ disabled: !forgeEnabled }"
+                      :disabled="!forgeEnabled"
+                      @click.stop="forgeEnabled && !forgeLoading && (forgeDropdownOpen = !forgeDropdownOpen)"
+                    >
+                      <span v-if="forgeLoading" class="combo-loading-text">{{ t("app.mainwindow.addinstance.forgeLoading") }}</span>
+                      <span v-else class="combo-text">{{ selectedForgeVersion }}</span>
+                      <LoaderCircle v-if="forgeLoading" :size="14" class="combo-spinner" />
+                      <ChevronDown v-else :size="14" class="combo-arrow" />
+                    </button>
+                    <div v-if="forgeDropdownOpen" class="combo-dropdown">
+                      <button
+                        v-for="v in forgeVersions"
+                        :key="v"
+                        class="combo-option"
+                        :class="{ active: v === selectedForgeVersion }"
+                        @click="selectedForgeVersion = v; forgeDropdownOpen = false"
+                      >{{ v }}</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+          <div class="footer">
+            <Transition name="slide-right">
+              <div v-if="loaderEnabled && selectedFabricVersion" class="fabric-info">
+                <Info :size="16" class="info-icon" />
+                <span>{{ t("app.mainwindow.addinstance.fabricInfo", { version: selectedFabricVersion }) }}</span>
+              </div>
+            </Transition>
+            <button class="pack-btn">
+              <Package :size="16" />
+              <span>安装整合包</span>
+            </button>
+            <button class="confirm-btn" :disabled="!canProceed" @click="emit('close')">
+              <span>{{ t("app.mainwindow.addinstance.confirm") }}</span>
+              <ArrowRight :size="16" />
+            </button>
+          </div>
+        </div>
+      </template>
+      <template v-else>
+        <div class="header mc-version-header">
+          <div class="header-left">
+            <button class="back-btn" @click="viewState = 'root'">
+              <ArrowLeft :size="21" />
+            </button>
+            <div class="header-title-group">
+              <span class="header-sub">{{ t("app.mainwindow.addinstance.headerSub") }}</span>
+              <span class="header-main">{{ t("app.mainwindow.addinstance.headerMain") }}</span>
+            </div>
+          </div>
+          <button class="close-btn" @click="emit('close')">
+            <X :size="18" />
+          </button>
+        </div>
+        <div class="divider"></div>
+        <McVersionSelection @select-version="(id: string) => { selectedMcVersion = id; viewState = 'root' }" />
+      </template>
+    </div>
+  </Transition>
+  </div>
+  </div>
+</template>
+
+<style scoped>
+.overlay {
+  position: fixed;
+  inset: 0;
+  top: 38px;
+  background: rgba(0, 0, 0, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  animation: fadeIn 0.2s ease;
+}
+
+.window {
+  display: flex;
+  flex-direction: column;
+  width: 680px;
+  height: 500px;
+  background: var(--content-bg);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+  padding: 16px 24px 20px;
+  overflow: visible;
+  animation: slideUp 0.25s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.view-wrapper {
+  display: contents;
+}
+
+.slide-enter-active,
+.slide-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.slide-enter-from {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+.slide-leave-to {
+  opacity: 0;
+  transform: translateX(-20px);
+}
+
+.slide-right-enter-active {
+  transition: transform 0.3s ease-out;
+}
+
+.slide-right-enter-from {
+  transform: translateX(60px);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 -24px 16px -24px;
+  padding: 0 24px;
+  color: var(--title-color);
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mc-version-header .header-left {
+  gap: 6px;
+}
+
+.back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--title-color);
+  transition: background 0.15s;
+  flex-shrink: 0;
+  margin-left: -4px;
+}
+
+.back-btn:hover {
+  background: rgba(128, 128, 128, 0.15);
+}
+
+.header-title-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.header-sub {
+  font-size: 11px;
+  color: var(--title-color);
+  opacity: 0.45;
+  line-height: 1;
+}
+
+.header-main {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--title-color);
+  line-height: 1.2;
+}
+
+.icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #0078d4;
+  flex-shrink: 0;
+}
+
+.icon {
+  color: #fff;
+}
+
+.title {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--title-color);
+  transition: background 0.15s;
+  margin-right: -12px;
+}
+
+.close-btn:hover {
+  background: rgba(128, 128, 128, 0.15);
+}
+
+.divider {
+  height: 1px;
+  background: rgba(128, 128, 128, 0.2);
+  margin: 0 -24px 20px -24px;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.top-row {
+  display: flex;
+  gap: 16px;
+}
+
+.icon-box {
+  padding: 6px 0 0 6px;
+  flex-shrink: 0;
+}
+
+.icon-preview {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  flex-shrink: 0;
+}
+
+.icon-preview-anvil {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(128, 128, 128, 0.15);
+  color: var(--title-color);
+}
+
+.name-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 11px;
+}
+
+.name-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--title-color);
+  opacity: 0.8;
+  margin-top: -8px;
+}
+
+.name-input {
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--title-color);
+  background: var(--panel-bg);
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 8px;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+  margin-top: 12px;
+}
+
+.name-input:hover {
+  border-color: rgba(128, 128, 128, 0.4);
+}
+
+.name-input:focus {
+  border-color: #0078d4;
+}
+
+.name-input::placeholder {
+  opacity: 0.4;
+}
+
+.section-divider {
+  height: 1px;
+  background: rgba(128, 128, 128, 0.2);
+  margin: 16px 0;
+}
+
+.cube-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #0078d4;
+  flex-shrink: 0;
+}
+
+.cube-icon {
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.version-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: 10px;
+}
+
+.version-card {
+  background: transparent;
+  border-radius: 10px;
+  padding: 12px 16px 12px 0;
+  margin: -10px 0 0 0;
+  width: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background 0s;
+}
+
+.version-card:hover {
+  background: var(--panel-bg);
+}
+
+.card-arrow {
+  color: var(--title-color);
+  opacity: 0.4;
+  flex-shrink: 0;
+  margin-left: 10px;
+}
+
+.vertical-divider {
+  width: 1px;
+  background: rgba(128, 128, 128, 0.2);
+  margin-left: 3px;
+}
+
+.card-row {
+  display: flex;
+  align-items: flex-start;
+  flex: 1;
+  position: relative;
+}
+
+.card-row-loading {
+  pointer-events: none;
+}
+
+.loading-overlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  min-height: 80px;
+  color: var(--title-color);
+  opacity: 0.6;
+  font-size: 13px;
+}
+
+.loading-overlay.error {
+  opacity: 0.8;
+  color: #e74c3c;
+}
+
+.spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.v-divider {
+  width: 1px;
+  background: rgba(128, 128, 128, 0.2);
+  margin: 0 0 0 3px;
+}
+
+.loader-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 0 4px;
+  padding: 8px 14px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--title-color);
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.loader-btn:hover {
+  background: rgba(128, 128, 128, 0.1);
+}
+
+.loader-btn.active {
+  background: rgba(0, 160, 255, 0.15);
+  border-color: rgba(0, 160, 255, 0.4);
+}
+
+.loader-btn.blocked {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.loader-btn.blocked:hover {
+  background: transparent;
+}
+
+.btn-wrap {
+  position: relative;
+}
+
+.btn-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: #333;
+  color: #fff;
+  font-size: 12px;
+  pointer-events: none;
+  z-index: 70;
+}
+
+.loader-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.loaders-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 6px;
+  margin-top: 3px;
+}
+
+.loader-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.version-combobox {
+  position: relative;
+  flex: 1;
+  margin: 0 3px 0 3px;
+}
+
+.combo-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--title-color);
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.combo-trigger:hover {
+  border-color: rgba(128, 128, 128, 0.4);
+}
+
+.combo-trigger.disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.combo-trigger.disabled:hover {
+  border-color: rgba(128, 128, 128, 0.25);
+}
+
+.combo-text {
+  opacity: 0.7;
+}
+
+.combo-arrow {
+  color: var(--title-color);
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.combo-spinner {
+  animation: spin 1s linear infinite;
+  color: var(--title-color);
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.combo-loading-text {
+  opacity: 0.5;
+  font-size: 12px;
+}
+
+.combo-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--panel-bg);
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  z-index: 60;
+}
+
+.combo-option {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  color: var(--title-color);
+  transition: background 0.1s;
+}
+
+.combo-option:hover {
+  background: rgba(128, 128, 128, 0.12);
+}
+
+.combo-option.active {
+  background: var(--sidebar-active);
+  color: var(--sidebar-active-color);
+}
+
+.version-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 13px;
+}
+
+.version-sub {
+  font-size: 14px;
+  color: var(--title-color);
+  opacity: 0.45;
+  margin-top: -16px;
+}
+
+.version-value {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--title-color);
+}
+
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding-top: 12px;
+}
+
+.fabric-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  margin-right: auto;
+  border-radius: 8px;
+  background: rgba(46, 204, 113, 0.12);
+  border: 1px solid rgba(46, 204, 113, 0.3);
+  color: #27ae60;
+  font-size: 12px;
+}
+
+.info-icon {
+  flex-shrink: 0;
+}
+
+.confirm-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 8px;
+  background: #0078d4;
+  color: #fff;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.pack-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  margin-right: 8px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--title-color);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.pack-btn:hover {
+  background: rgba(128, 128, 128, 0.1);
+  border-color: rgba(128, 128, 128, 0.4);
+}
+
+.confirm-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.confirm-btn:hover:not(:disabled) {
+  background: #1a8ae8;
+}
+</style>

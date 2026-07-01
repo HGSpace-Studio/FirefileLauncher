@@ -1,9 +1,6 @@
-use tauri::Manager;
+mod launcher;
 
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,7 +18,14 @@ pub fn run() {
             window.show()?;
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet])
+        .invoke_handler(tauri::generate_handler![
+            launcher::launch_minecraft,
+            launcher::get_minecraft_versions,
+            launcher::get_fabric_versions,
+            launcher::get_forge_versions,
+            launcher::get_java_versions,
+            launcher::get_system_memory,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
