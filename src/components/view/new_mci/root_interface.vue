@@ -2,11 +2,12 @@
 import { ref, computed, watch } from "vue";
 import { onMounted, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { PackagePlus, Package, X, Box, ChevronRight, ChevronDown, LoaderCircle, Anvil, ArrowRight, ArrowLeft, Info } from "@lucide/vue";
+import { PackagePlus, Package, Search, X, Box, ChevronRight, ChevronDown, LoaderCircle, Anvil, ArrowRight, ArrowLeft, Info } from "@lucide/vue";
 import { invoke } from "@tauri-apps/api/core";
 import fabricIcon from "../../../assets/imgs/mod_loader_imgs/fabric.png";
 import mcIcon from "../../../assets/imgs/mc_oringin.png";
 import McVersionSelection from "./mcverselection_interface.vue";
+import { getCache, setCache } from "../../../utils/cache";
 
 interface FabricVersion {
   separator: string;
@@ -71,6 +72,7 @@ watch([loaderEnabled, forgeEnabled, selectedFabricVersion, selectedForgeVersion]
 });
 
 const viewState = ref<'root' | 'mc-version'>('root');
+const searchQuery = ref('');
 
 function toggleFabric() {
   if (forgeEnabled.value) return;
@@ -85,12 +87,22 @@ function toggleForge() {
 const forgeLoading = ref(false);
 
 async function fetchForgeVersions(mcVersion: string) {
+  const cacheKey = "forge_versions_" + mcVersion;
+  const cached = getCache<string[]>(cacheKey);
+  if (cached) {
+    forgeVersions.value = cached;
+    if (forgeVersions.value.length > 0) {
+      selectedForgeVersion.value = forgeVersions.value[0];
+    }
+    return;
+  }
   forgeLoading.value = true;
   try {
     const forgeList = await invoke<ForgeBuild[]>("get_forge_versions", {
       mcVersion,
     });
     forgeVersions.value = forgeList.map((v) => v.version).reverse();
+    setCache(cacheKey, forgeVersions.value);
     if (forgeVersions.value.length > 0) {
       selectedForgeVersion.value = forgeVersions.value[0];
     }
@@ -102,18 +114,28 @@ async function fetchForgeVersions(mcVersion: string) {
 }
 
 onMounted(async () => {
-  try {
-    const [fabricList] = await Promise.all([
-      invoke<FabricVersion[]>("get_fabric_versions"),
-    ]);
-    fabricVersions.value = fabricList.map((v) => v.version);
+  const cached = getCache<string[]>("fabric_versions");
+  if (cached) {
+    fabricVersions.value = cached;
     if (fabricVersions.value.length > 0) {
       selectedFabricVersion.value = fabricVersions.value[0];
     }
-  } catch (e: any) {
-    loadError.value = String(e);
-  } finally {
     loading.value = false;
+  } else {
+    try {
+      const [fabricList] = await Promise.all([
+        invoke<FabricVersion[]>("get_fabric_versions"),
+      ]);
+      fabricVersions.value = fabricList.map((v) => v.version);
+      setCache("fabric_versions", fabricVersions.value);
+      if (fabricVersions.value.length > 0) {
+        selectedFabricVersion.value = fabricVersions.value[0];
+      }
+    } catch (e: any) {
+      loadError.value = String(e);
+    } finally {
+      loading.value = false;
+    }
   }
   document.addEventListener("mousedown", onDocMouseDown);
   fetchForgeVersions(selectedMcVersion.value);
@@ -304,12 +326,16 @@ function onOverlayClick(e: MouseEvent) {
               <span class="header-main">{{ t("app.mainwindow.addinstance.headerMain") }}</span>
             </div>
           </div>
+          <div class="header-search">
+            <Search :size="16" class="search-icon" />
+            <input v-model="searchQuery" class="search-input" placeholder="搜索版本..." />
+          </div>
           <button class="close-btn" @click="emit('close')">
             <X :size="18" />
           </button>
         </div>
         <div class="divider"></div>
-        <McVersionSelection @select-version="(id: string) => { selectedMcVersion = id; viewState = 'root' }" />
+        <McVersionSelection :search-query="searchQuery" @select-version="(id: string) => { selectedMcVersion = id; viewState = 'root' }" />
       </template>
     </div>
   </Transition>
@@ -370,12 +396,12 @@ function onOverlayClick(e: MouseEvent) {
 
 .slide-enter-from {
   opacity: 0;
-  transform: translateX(20px);
+  transform: translateX(-30px);
 }
 
 .slide-leave-to {
   opacity: 0;
-  transform: translateX(-20px);
+  transform: translateX(30px);
 }
 
 .slide-right-enter-active {
@@ -443,6 +469,36 @@ function onOverlayClick(e: MouseEvent) {
   font-weight: 600;
   color: var(--title-color);
   line-height: 1.2;
+}
+
+.header-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  max-width: 240px;
+  margin: 0 16px;
+}
+
+.search-icon {
+  color: var(--title-color);
+  opacity: 0.35;
+  flex-shrink: 0;
+}
+
+.search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--title-color);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.search-input::placeholder {
+  color: var(--title-color);
+  opacity: 0.3;
 }
 
 .icon-wrap {
@@ -880,6 +936,26 @@ function onOverlayClick(e: MouseEvent) {
 
 .info-icon {
   flex-shrink: 0;
+}
+
+.pack-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 18px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--title-color);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-right: auto;
+}
+
+.pack-btn:hover {
+  background: rgba(128, 128, 128, 0.1);
 }
 
 .confirm-btn {

@@ -53,5 +53,7 @@
   "app.mainwindow.versionnav.snapshot": "快照版",
   "app.mainwindow.versionnav.old": "远古版",
   "app.mainwindow.versionnav.april": "愚人节版",
-  "app.mainwindow.versionnav.loading": "请稍后，正在与 BMCLAPI 通信以获得游戏版本信息"
+  "app.mainwindow.versionnav.loading": "请稍后，正在与 BMCLAPI 通信以获得游戏版本信息",
+  "app.mainwindow.resourcescenter.title": "资源中心",
+  "app.mainwindow.resourcescenter.mainTitle": "modrinth 资源"
 }

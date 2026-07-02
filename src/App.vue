@@ -6,6 +6,7 @@ import logo from "./assets/logos/logo.png";
 import SettingsInterface from "./components/settings_interface.vue";
 import NewMciRoot from "./components/view/new_mci/root_interface.vue";
 import HomePage from "./components/view/HomePage.vue";
+import ResourcesCenter from "./components/view/ResourcesCenter.vue";
 
 const isMac = ref(false);
 const isLinux = ref(false);
@@ -105,7 +106,7 @@ function closeWindow() {
     <main class="content">
       <HomePage v-if="activeNav === 'home'" />
       <div v-else-if="activeNav === 'library'" class="nav-placeholder">{{ activeNav }}</div>
-      <div v-else-if="activeNav === 'resourcescenter'" class="nav-placeholder">{{ activeNav }}</div>
+      <ResourcesCenter v-else-if="activeNav === 'resourcescenter'" />
     </main>
     <SettingsInterface v-if="showSettings" @close="showSettings = false" />
     <NewMciRoot v-if="showNewInstance" @close="showNewInstance = false" />
@@ -122,7 +123,7 @@ function closeWindow() {
 }
 
 html {
-  border-radius: 30px;
+  border-radius: 16px;
   overflow: hidden;
 }
 
@@ -147,6 +148,11 @@ body {
   height: 38px;
   user-select: none;
   background: var(--panel-bg);
+  border-radius: 16px 16px 0 0;
+}
+
+.titlebar.is-mac {
+  border-radius: 0 16px 0 0;
 }
 
 .traffic-light-area {
@@ -228,12 +234,16 @@ body {
 .viewport {
   height: calc(100vh - 38px);
   display: flex;
-  background: var(--content-bg);
+  overflow: hidden;
+  border-radius: 0 0 16px 16px;
 }
 
 .content {
   flex: 1;
   display: flex;
+  border-radius: 13px 0 0 0;
+  overflow: hidden;
+  background: var(--content-bg);
 }
 
 .nav-placeholder {
@@ -258,6 +268,7 @@ body {
     --tooltip-color: #f5f5f7;
     --content-bg: #f6f6f6;
     --settings-icon-bg: #0078d4;
+    --window-border: rgba(0, 0, 0, 0.12);
   }
 }
 
@@ -273,6 +284,7 @@ body {
     --tooltip-color: #1d1d1f;
     --content-bg: #1c1c1e;
     --settings-icon-bg: #60a5fa;
+    --window-border: rgba(255, 255, 255, 0.12);
   }
   .win-btn:hover {
     background: rgba(255, 255, 255, 0.1);
@@ -294,6 +306,7 @@ html[data-theme="light"] {
   --tooltip-color: #f5f5f7;
   --content-bg: #f6f6f6;
   --settings-icon-bg: #0078d4;
+  --window-border: rgba(0, 0, 0, 0.12);
 }
 
 html[data-theme="dark"] {
@@ -307,6 +320,7 @@ html[data-theme="dark"] {
   --tooltip-color: #1d1d1f;
   --content-bg: #1c1c1e;
   --settings-icon-bg: #60a5fa;
+  --window-border: rgba(255, 255, 255, 0.12);
 }
 
 html[data-theme="dark"] .win-btn:hover {

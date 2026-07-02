@@ -3,9 +3,14 @@ import { ref, computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { Box, Sparkles, LoaderCircle } from "@lucide/vue";
 import { invoke } from "@tauri-apps/api/core";
+import { getCache, setCache } from "../../../utils/cache";
 import mcIcon from "../../../assets/imgs/mc_oringin.png";
 
 const { t } = useI18n();
+
+const props = defineProps<{
+  searchQuery?: string;
+}>();
 
 interface VersionInfo {
   id: string;
@@ -41,23 +46,33 @@ const activeTab = ref("release");
 const filteredVersions = computed(() => {
   if (!manifest.value) return [];
   const all = manifest.value.versions;
+  let result: VersionInfo[];
   switch (activeTab.value) {
     case "release":
-      return all.filter((v) => v.type === "release" && !isAprilFools(v.id));
+      result = all.filter((v) => v.type === "release" && !isAprilFools(v.id));
+      break;
     case "snapshot":
-      return all.filter((v) => v.type === "snapshot" && !isAprilFools(v.id));
+      result = all.filter((v) => v.type === "snapshot" && !isAprilFools(v.id));
+      break;
     case "old":
-      return all.filter(
+      result = all.filter(
         (v) =>
           v.type !== "release" &&
           v.type !== "snapshot" &&
           !isAprilFools(v.id)
       );
+      break;
     case "april":
-      return all.filter((v) => isAprilFools(v.id));
+      result = all.filter((v) => isAprilFools(v.id));
+      break;
     default:
-      return [];
+      result = [];
   }
+  if (props.searchQuery) {
+    const q = props.searchQuery.toLowerCase();
+    result = result.filter((v) => v.id.toLowerCase().includes(q));
+  }
+  return result;
 });
 
 function formatDate(iso: string): string {
@@ -74,13 +89,19 @@ function formatDate(iso: string): string {
 }
 
 onMounted(async () => {
+  const cached = getCache<VersionManifest>("mc_versions");
+  if (cached) {
+    manifest.value = cached;
+    loading.value = false;
+    return;
+  }
   try {
     manifest.value = await invoke<VersionManifest>("get_minecraft_versions");
+    setCache("mc_versions", manifest.value);
   } catch {
     // silent
-  } finally {
-    loading.value = false;
   }
+  loading.value = false;
 });
 
 function setTab(tab: string) {

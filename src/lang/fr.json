@@ -53,5 +53,7 @@
   "app.mainwindow.versionnav.snapshot": "Snapshot",
   "app.mainwindow.versionnav.old": "Old",
   "app.mainwindow.versionnav.april": "April Fools",
-  "app.mainwindow.versionnav.loading": "Please wait, communicating with BMCLAPI..."
+  "app.mainwindow.versionnav.loading": "Please wait, communicating with BMCLAPI...",
+  "app.mainwindow.resourcescenter.title": "Resources Center",
+  "app.mainwindow.resourcescenter.mainTitle": "modrinth Resources"
 }

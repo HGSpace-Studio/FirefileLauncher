@@ -95,6 +95,7 @@ const translatedFooterItem = computed(() =>
   position: relative;
   overflow: visible;
   background: var(--panel-bg);
+  border-radius: 0 0 0 16px;
 }
 
 .sidebar.expanded {
