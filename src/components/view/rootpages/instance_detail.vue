@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onUnmounted } from "vue";
-import { ArrowLeft, Gamepad2, Play, Square, LoaderCircle } from "@lucide/vue";
+import { ArrowLeft, Gamepad2, Play, Square, LoaderCircle, Bolt, LayoutGrid } from "@lucide/vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
@@ -33,6 +33,11 @@ const loaderLabel = computed(() => {
   };
   return `${map[props.instance.loader.type] || props.instance.loader.type} ${props.instance.loader.version}`;
 });
+
+const activeTab = ref<"launch" | "settings" | "resources">("launch");
+
+const downloadConcurrency = ref(10);
+const verifyConcurrency = ref(4);
 
 type LaunchState = "idle" | "launching" | "running" | "exited";
 const state = ref<LaunchState>("idle");
@@ -103,6 +108,8 @@ async function launchGame() {
         loader_build: props.instance.loader?.version || null,
         instance: props.instance.name,
         download_only: false,
+        download_concurrency: downloadConcurrency.value,
+        verify_concurrency: verifyConcurrency.value,
       },
     });
   } catch (e: any) {
@@ -145,10 +152,53 @@ onUnmounted(cleanupListeners);
         <span class="detail-loader">{{ loaderLabel }}</span>
         <span class="detail-version">Minecraft {{ instance.version }}</span>
       </div>
+      <div class="detail-tabs">
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'launch' }"
+          @click="activeTab = 'launch'"
+        >
+          <Play :size="16" />
+          <span>启动</span>
+        </button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'settings' }"
+          @click="activeTab = 'settings'"
+        >
+          <Bolt :size="16" />
+          <span>设置</span>
+        </button>
+        <button
+          class="tab-btn"
+          :class="{ active: activeTab === 'resources' }"
+          @click="activeTab = 'resources'"
+        >
+          <LayoutGrid :size="16" />
+          <span>安装的资源</span>
+        </button>
+      </div>
     </div>
     <div class="detail-content">
+      <div v-if="activeTab === 'launch'" class="tab-panel">
+      </div>
+      <div v-else-if="activeTab === 'settings'" class="tab-panel">
+        <div class="settings-section">
+          <h3 class="settings-heading">下载</h3>
+          <div class="settings-row">
+            <label class="settings-label">下载线程数</label>
+            <input v-model.number="downloadConcurrency" type="number" min="1" max="64" class="settings-input" />
+          </div>
+          <div class="settings-row">
+            <label class="settings-label">校验线程数</label>
+            <input v-model.number="verifyConcurrency" type="number" min="1" max="64" class="settings-input" />
+          </div>
+        </div>
+      </div>
+      <div v-else-if="activeTab === 'resources'" class="tab-panel">
+      </div>
     </div>
-    <div class="detail-footer">
+    <div v-if="activeTab === 'launch'" class="detail-footer">
       <button
         v-if="state === 'launching'"
         class="launch-btn launching"
@@ -263,6 +313,97 @@ onUnmounted(cleanupListeners);
   font-weight: 600;
   color: var(--title-color);
   line-height: 1.2;
+}
+
+.detail-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  background: rgba(128, 128, 128, 0.08);
+  border-radius: 10px;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--title-color);
+  opacity: 0.55;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+}
+
+.tab-btn:hover {
+  opacity: 0.8;
+}
+
+.tab-btn.active {
+  background: var(--panel-bg);
+  opacity: 1;
+}
+
+.tab-panel {
+  width: 100%;
+  height: 100%;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--title-color);
+  opacity: 0.6;
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-label {
+  font-size: 13px;
+  color: var(--title-color);
+  min-width: 100px;
+}
+
+.settings-input {
+  width: 80px;
+  padding: 4px 8px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 6px;
+  background: var(--panel-bg);
+  color: var(--title-color);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.settings-input:focus {
+  border-color: #0078d4;
+}
+
+.settings-input::-webkit-inner-spin-button {
+  opacity: 0.5;
 }
 
 .detail-content {

@@ -291,6 +291,8 @@ pub struct LaunchArgs {
     pub loader_build: Option<String>,
     pub instance: Option<String>,
     pub download_only: bool,
+    pub download_concurrency: Option<u32>,
+    pub verify_concurrency: Option<u32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -346,8 +348,8 @@ pub async fn launch_minecraft(
         version: args.version,
         authenticator: auth,
         timeout_secs: 30,
-        download_concurrency: 10,
-        verify_concurrency: 4,
+        download_concurrency: args.download_concurrency.unwrap_or(10),
+        verify_concurrency: args.verify_concurrency.unwrap_or(4),
         memory: MemoryConfig {
             min: args.min_mem,
             max: args.max_mem,
