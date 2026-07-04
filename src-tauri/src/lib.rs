@@ -1,21 +1,40 @@
 mod launcher;
 
 use tauri::Manager;
+use tauri::WebviewWindowBuilder;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(launcher::GameStopSignal::default())
         .setup(|app| {
-            let window = app.get_webview_window("main").unwrap();
+            let main_window = app.get_webview_window("main").unwrap();
 
             #[cfg(target_os = "macos")]
-            window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
+            main_window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
 
             #[cfg(target_os = "windows")]
-            window.set_decorations(false)?;
+            main_window.set_decorations(false)?;
 
-            window.show()?;
+            let oobe_needed = !launcher::check_oobe_completed().unwrap_or(false);
+
+            if oobe_needed {
+                let oobe_window = WebviewWindowBuilder::new(app, "oobe", tauri::WebviewUrl::App("index.html".into()))
+                    .title("Firefile Launcher - 初始化设置")
+                    .inner_size(700.0, 560.0)
+                    .resizable(false)
+                    .center()
+                    .build()?;
+
+                #[cfg(target_os = "macos")]
+                oobe_window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
+
+                main_window.hide()?;
+            } else {
+                main_window.show()?;
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -25,6 +44,20 @@ pub fn run() {
             launcher::get_forge_versions,
             launcher::get_java_versions,
             launcher::get_system_memory,
+            launcher::init_oobe_environment,
+            launcher::save_oobe_settings,
+            launcher::rollback_oobe,
+            launcher::check_oobe_completed,
+            launcher::finish_oobe,
+            launcher::install_instance,
+            launcher::get_instances_list,
+            launcher::get_oobe_settings,
+            launcher::get_minecraft_dir_string,
+            launcher::get_current_account,
+            launcher::get_accounts,
+            launcher::add_account,
+            launcher::remove_account,
+            launcher::stop_game,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

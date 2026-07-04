@@ -7,8 +7,14 @@ use minecraft_java_rs_core::models::loader::LoaderType;
 use minecraft_java_rs_core::models::minecraft::Authenticator;
 use minecraft_java_rs_core::utils::auth::offline_uuid;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
+use futures_util::StreamExt;
+use std::io::Write;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+pub type GameStopSignal = Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VersionInfo {
@@ -416,8 +422,469 @@ pub async fn launch_minecraft(
         launcher.download_game(tx).await.map_err(|e| e.to_string())?;
     } else {
         let mut child = launcher.start(tx).await.map_err(|e| e.to_string())?;
-        child.wait().await.map_err(|e| e.to_string())?;
+        let _ = app.emit("minecraft-ready", serde_json::json!({}));
+
+        let (tx_stop, rx_stop) = tokio::sync::oneshot::channel::<()>();
+        let signal = app.state::<GameStopSignal>();
+        *signal.lock().await = Some(tx_stop);
+
+        tokio::select! {
+            result = child.wait() => {
+                result.map_err(|e| e.to_string())?;
+            }
+            _ = rx_stop => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                let _ = app.emit("minecraft-exit", MinecraftEvent::Close { code: 0 });
+            }
+        }
+
+        *signal.lock().await = None;
     }
 
+    Ok(())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OobeSettings {
+    pub locale: String,
+    pub theme: String,
+    pub font: String,
+    pub java_path: String,
+    pub account_type: String,
+    pub account_name: String,
+    pub oobe_completed: bool,
+}
+
+impl Default for OobeSettings {
+    fn default() -> Self {
+        Self {
+            locale: "system".into(),
+            theme: "system".into(),
+            font: "__system_default__".into(),
+            java_path: String::new(),
+            account_type: "offline".into(),
+            account_name: String::new(),
+            oobe_completed: false,
+        }
+    }
+}
+
+fn get_minecraft_dir() -> std::path::PathBuf {
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                return dir.join(".minecraft");
+            }
+        }
+    }
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".into());
+    std::path::PathBuf::from(home).join(".minecraft")
+}
+
+fn get_settings_path() -> std::path::PathBuf {
+    get_minecraft_dir().join("settings.json")
+}
+
+#[tauri::command]
+pub fn init_oobe_environment() -> Result<OobeSettings, String> {
+    let mc_dir = get_minecraft_dir();
+    std::fs::create_dir_all(&mc_dir).map_err(|e| format!("Failed to create .minecraft: {}", e))?;
+
+    let dirs = ["versions", "logs", "caches"];
+    for d in &dirs {
+        let path = mc_dir.join(d);
+        std::fs::create_dir_all(&path)
+            .map_err(|e| format!("Failed to create .minecraft/{}: {}", d, e))?;
+    }
+
+    let settings = OobeSettings::default();
+    let json = serde_json::to_string_pretty(&settings).map_err(|e| format!("Failed to serialize settings: {}", e))?;
+    std::fs::write(get_settings_path(), &json).map_err(|e| format!("Failed to write settings.json: {}", e))?;
+
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn save_oobe_settings(settings: OobeSettings) -> Result<(), String> {
+    let mc_dir = get_minecraft_dir();
+    std::fs::create_dir_all(&mc_dir).map_err(|e| format!("Failed to create .minecraft: {}", e))?;
+    let json = serde_json::to_string_pretty(&settings).map_err(|e| format!("Failed to serialize settings: {}", e))?;
+    std::fs::write(get_settings_path(), &json).map_err(|e| format!("Failed to write settings.json: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn rollback_oobe() -> Result<(), String> {
+    let mc_dir = get_minecraft_dir();
+    let settings_path = get_settings_path();
+    if settings_path.exists() {
+        std::fs::remove_file(&settings_path).ok();
+    }
+    if mc_dir.exists() {
+        std::fs::remove_dir_all(&mc_dir).map_err(|e| format!("Failed to remove .minecraft: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn check_oobe_completed() -> Result<bool, String> {
+    let path = get_settings_path();
+    if !path.exists() {
+        return Ok(false);
+    }
+    let content = std::fs::read_to_string(&path).map_err(|e| format!("Failed to read settings.json: {}", e))?;
+    let settings: OobeSettings = serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings.json: {}", e))?;
+    Ok(settings.oobe_completed)
+}
+
+#[tauri::command]
+pub fn get_oobe_settings() -> Result<OobeSettings, String> {
+    let path = get_settings_path();
+    if !path.exists() {
+        return Ok(OobeSettings::default());
+    }
+    let content = std::fs::read_to_string(&path).map_err(|e| format!("Failed to read settings.json: {}", e))?;
+    let settings: OobeSettings = serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings.json: {}", e))?;
+    Ok(settings)
+}
+
+#[tauri::command]
+pub fn get_minecraft_dir_string() -> String {
+    get_minecraft_dir().to_string_lossy().to_string()
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CurrentAccount {
+    pub name: String,
+    pub account_type: String,
+    pub uuid: String,
+}
+
+#[tauri::command]
+pub fn get_current_account() -> Result<CurrentAccount, String> {
+    let path = get_settings_path();
+    if path.exists() {
+        let content = std::fs::read_to_string(&path).map_err(|e| format!("Failed to read settings.json: {}", e))?;
+        if let Ok(settings) = serde_json::from_str::<OobeSettings>(&content) {
+            if !settings.account_name.is_empty() {
+                let uuid = offline_uuid(&settings.account_name);
+                return Ok(CurrentAccount {
+                    name: settings.account_name,
+                    account_type: settings.account_type,
+                    uuid,
+                });
+            }
+        }
+    }
+    let accounts = read_accounts();
+    if let Some(first) = accounts.first() {
+        return Ok(CurrentAccount {
+            name: first.name.clone(),
+            account_type: first.r#type.clone(),
+            uuid: first.uuid.clone(),
+        });
+    }
+    Ok(CurrentAccount {
+        name: String::new(),
+        account_type: String::new(),
+        uuid: String::new(),
+    })
+}
+
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LoaderEntry {
+    #[serde(rename = "type")]
+    pub r#type: String,
+    pub version: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct InstanceEntry {
+    pub name: String,
+    pub version: String,
+    pub version_type: String,
+    pub loader: Option<LoaderEntry>,
+    pub icon: Option<String>,
+    pub installed: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VersionDownload {
+    pub sha1: String,
+    pub size: u64,
+    pub url: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VersionDownloads {
+    pub client: VersionDownload,
+    pub server: Option<VersionDownload>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VersionJson {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub type_: String,
+    pub downloads: VersionDownloads,
+    pub assets: Option<String>,
+    #[serde(rename = "assetIndex")]
+    pub asset_index: Option<VersionDownload>,
+}
+
+#[tauri::command]
+pub fn finish_oobe(settings: OobeSettings, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let mut s = settings;
+    s.oobe_completed = true;
+    let json = serde_json::to_string_pretty(&s).map_err(|e| format!("Failed to serialize settings: {}", e))?;
+    std::fs::write(get_settings_path(), &json).map_err(|e| format!("Failed to write settings.json: {}", e))?;
+
+    if let Some(main_window) = app_handle.get_webview_window("main") {
+        let _ = main_window.show();
+        let _ = main_window.set_focus();
+    }
+
+    if let Some(oobe_window) = app_handle.get_webview_window("oobe") {
+        let _ = oobe_window.close();
+    }
+
+    let _ = app_handle.emit("account-refresh", ());
+
+    Ok(())
+}
+
+fn get_instances_list_path() -> std::path::PathBuf {
+    get_minecraft_dir().join("in_versions_list.json")
+}
+
+fn read_instances_list() -> Vec<InstanceEntry> {
+    let path = get_instances_list_path();
+    if !path.exists() {
+        return Vec::new();
+    }
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn write_instances_list(instances: &[InstanceEntry]) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(instances)
+        .map_err(|e| format!("Failed to serialize instances list: {}", e))?;
+    std::fs::write(get_instances_list_path(), &json)
+        .map_err(|e| format!("Failed to write instances list: {}", e))
+}
+
+#[tauri::command]
+pub async fn install_instance(
+    app: AppHandle,
+    name: String,
+    mc_version: String,
+    version_type: String,
+    loader_type: Option<String>,
+    loader_version: Option<String>,
+) -> Result<(), String> {
+    let mc_dir = get_minecraft_dir();
+    let instance_dir = mc_dir.join("versions").join(&name);
+    std::fs::create_dir_all(&instance_dir)
+        .map_err(|e| format!("Failed to create instance dir: {}", e))?;
+
+    let _ = app.emit("install-progress", serde_json::json!({
+        "step": "manifest",
+        "progress": 0.0
+    }));
+
+    let manifest_url = "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json";
+    let manifest_resp = reqwest::get(manifest_url)
+        .await
+        .map_err(|e| format!("Failed to fetch version manifest: {}", e))?;
+    let manifest: VersionManifest = manifest_resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse version manifest: {}", e))?;
+
+    let version_info = manifest.versions.iter()
+        .find(|v| v.id == mc_version)
+        .ok_or_else(|| format!("Version {} not found in manifest", mc_version))?;
+
+    let _ = app.emit("install-progress", serde_json::json!({
+        "step": "version_json",
+        "progress": 0.2
+    }));
+
+    let version_json_resp = reqwest::get(&version_info.url)
+        .await
+        .map_err(|e| format!("Failed to fetch version JSON: {}", e))?;
+    let version_json: VersionJson = version_json_resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse version JSON: {}", e))?;
+
+    let version_json_path = instance_dir.join(format!("{}.json", &name));
+    let version_json_content = serde_json::to_string_pretty(&version_json)
+        .map_err(|e| format!("Failed to serialize version JSON: {}", e))?;
+    std::fs::write(&version_json_path, &version_json_content)
+        .map_err(|e| format!("Failed to write version JSON: {}", e))?;
+
+    let _ = app.emit("install-progress", serde_json::json!({
+        "step": "client_jar",
+        "progress": 0.4
+    }));
+
+    let jar_url = &version_json.downloads.client.url;
+    let jar_path = instance_dir.join(format!("{}.jar", &name));
+
+    let jar_resp = reqwest::get(jar_url)
+        .await
+        .map_err(|e| format!("Failed to fetch client jar: {}", e))?;
+
+    let total_size = jar_resp.content_length().unwrap_or(0);
+    let mut downloaded: u64 = 0;
+    let mut file = std::fs::File::create(&jar_path)
+        .map_err(|e| format!("Failed to create jar file: {}", e))?;
+    let mut stream = jar_resp.bytes_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("Download error: {}", e))?;
+        downloaded += chunk.len() as u64;
+        file.write_all(&chunk)
+            .map_err(|e| format!("Failed to write jar data: {}", e))?;
+
+        if total_size > 0 {
+            let progress = 0.4 + (downloaded as f64 / total_size as f64) * 0.4;
+            let _ = app.emit("install-progress", serde_json::json!({
+                "step": "client_jar",
+                "progress": progress
+            }));
+        }
+    }
+
+    let _ = app.emit("install-progress", serde_json::json!({
+        "step": "finalize",
+        "progress": 0.9
+    }));
+
+    let loader = loader_type.map(|lt| LoaderEntry {
+        r#type: lt,
+        version: loader_version.unwrap_or_default(),
+    });
+
+    let new_entry = InstanceEntry {
+        name: name.clone(),
+        version: mc_version,
+        version_type,
+        loader,
+        icon: None,
+        installed: false,
+    };
+
+    let mut instances = read_instances_list();
+    instances.push(new_entry);
+    write_instances_list(&instances)?;
+
+    let _ = app.emit("install-progress", serde_json::json!({
+        "step": "done",
+        "progress": 1.0
+    }));
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn get_instances_list() -> Result<Vec<InstanceEntry>, String> {
+    Ok(read_instances_list())
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AccountEntry {
+    pub name: String,
+    pub r#type: String,
+    pub uuid: String,
+}
+
+fn get_accounts_path() -> std::path::PathBuf {
+    get_minecraft_dir().join("accounts.json")
+}
+
+fn read_accounts() -> Vec<AccountEntry> {
+    let path = get_accounts_path();
+    if !path.exists() {
+        return Vec::new();
+    }
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn write_accounts(accounts: &[AccountEntry]) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(accounts)
+        .map_err(|e| format!("Failed to serialize accounts: {}", e))?;
+    std::fs::write(get_accounts_path(), &json)
+        .map_err(|e| format!("Failed to write accounts: {}", e))
+}
+
+#[tauri::command]
+pub fn get_accounts() -> Result<Vec<AccountEntry>, String> {
+    let mut accounts = read_accounts();
+    if accounts.is_empty() {
+        let settings_path = get_settings_path();
+        if settings_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&settings_path) {
+                if let Ok(settings) = serde_json::from_str::<OobeSettings>(&content) {
+                    if !settings.account_name.is_empty() {
+                        let uuid = offline_uuid(&settings.account_name);
+                        accounts.push(AccountEntry {
+                            name: settings.account_name.clone(),
+                            r#type: settings.account_type.clone(),
+                            uuid,
+                        });
+                        write_accounts(&accounts).ok();
+                    }
+                }
+            }
+        }
+    }
+    Ok(accounts)
+}
+
+#[tauri::command]
+pub fn add_account(name: String, account_type: String) -> Result<Vec<AccountEntry>, String> {
+    let uuid = if name.is_empty() {
+        String::new()
+    } else {
+        offline_uuid(&name)
+    };
+    let entry = AccountEntry {
+        name,
+        r#type: account_type,
+        uuid,
+    };
+    let mut accounts = read_accounts();
+    accounts.push(entry);
+    write_accounts(&accounts)?;
+    Ok(accounts)
+}
+
+#[tauri::command]
+pub fn remove_account(name: String) -> Result<Vec<AccountEntry>, String> {
+    let mut accounts = read_accounts();
+    accounts.retain(|a| a.name != name);
+    write_accounts(&accounts)?;
+    Ok(accounts)
+}
+
+#[tauri::command]
+pub async fn stop_game(app: AppHandle) -> Result<(), String> {
+    let signal = app.state::<GameStopSignal>();
+    let mut guard = signal.lock().await;
+    if let Some(tx) = guard.take() {
+        let _ = tx.send(());
+    }
     Ok(())
 }

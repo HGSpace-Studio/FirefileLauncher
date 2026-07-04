@@ -4,6 +4,7 @@ import { onMounted, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { PackagePlus, Package, Search, X, Box, ChevronRight, ChevronDown, LoaderCircle, Anvil, ArrowRight, ArrowLeft, Info } from "@lucide/vue";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import fabricIcon from "../../../assets/imgs/mod_loader_imgs/fabric.png";
 import mcIcon from "../../../assets/imgs/mc_oringin.png";
 import McVersionSelection from "./mcverselection_interface.vue";
@@ -27,6 +28,7 @@ interface ForgeBuild {
 
 const emit = defineEmits<{
   (e: "close"): void;
+  (e: "navigate", nav: string): void;
 }>();
 
 const { t } = useI18n();
@@ -46,6 +48,23 @@ const hoveredTooltip = ref<'fabric' | 'forge' | null>(null);
 const loadError = ref("");
 const instanceName = ref("");
 const selectedMcVersion = ref("1.21.8");
+const selectedMcVersionType = ref("release");
+
+const installing = ref(false);
+const installProgress = ref(0);
+const installStep = ref("");
+const installLabel = ref("正在获取清单...");
+let unlistenProgress: (() => void) | null = null;
+
+const stepLabels: Record<string, string> = {
+  manifest: "正在获取版本清单...",
+  version_json: "正在下载版本元数据...",
+  client_jar: "正在下载游戏客户端...",
+  finalize: "正在保存配置...",
+  done: "安装完成!",
+};
+
+const isOldVersion = computed(() => selectedMcVersionType.value !== "release" && selectedMcVersionType.value !== "snapshot");
 
 const canProceed = computed(() => selectedMcVersion.value.length > 0 && instanceName.value.trim().length > 0);
 
@@ -165,6 +184,50 @@ function onOverlayClick(e: MouseEvent) {
     emit("close");
   }
 }
+
+async function startInstall() {
+  installing.value = true;
+  installProgress.value = 0;
+  installStep.value = "";
+  installLabel.value = stepLabels["manifest"];
+
+  unlistenProgress = await listen<{ step: string; progress: number }>("install-progress", (event) => {
+    const { step, progress } = event.payload;
+    installProgress.value = progress;
+    installStep.value = step;
+    installLabel.value = stepLabels[step] || step;
+    if (step === "done") {
+      setTimeout(() => {
+        installing.value = false;
+        window.dispatchEvent(new CustomEvent("instance-installed"));
+        emit("navigate", "library");
+      }, 800);
+    }
+  });
+
+  try {
+    const loaderType = loaderEnabled.value ? "fabric" : forgeEnabled.value ? "forge" : null;
+    const loaderVer = loaderEnabled.value ? selectedFabricVersion.value : forgeEnabled.value ? selectedForgeVersion.value : null;
+
+    await invoke("install_instance", {
+      name: instanceName.value,
+      mcVersion: selectedMcVersion.value,
+      versionType: selectedMcVersionType.value,
+      loaderType,
+      loaderVersion: loaderVer,
+    });
+  } catch (e: any) {
+    installLabel.value = "安装失败: " + (e?.toString() || "未知错误");
+    installing.value = false;
+  }
+}
+
+onUnmounted(() => {
+  if (unlistenProgress) {
+    unlistenProgress();
+    unlistenProgress = null;
+  }
+});
 </script>
 
 <template>
@@ -220,80 +283,84 @@ function onOverlayClick(e: MouseEvent) {
                 </div>
                 <ChevronRight :size="18" class="card-arrow" />
               </div>
-              <div class="v-divider"></div>
-              <div class="loaders-area">
-                <div class="loader-row">
-                  <div class="btn-wrap">
-                    <button
-                      class="loader-btn"
-                      :class="{ active: loaderEnabled, blocked: forgeEnabled }"
-                      @click="toggleFabric"
-                      @mouseenter="forgeEnabled && (hoveredTooltip = 'fabric')"
-                      @mouseleave="hoveredTooltip = null"
-                    >
-                      <img :src="fabricIcon" class="loader-icon" />
-                      <span>Fabric</span>
-                    </button>
-                    <span v-if="hoveredTooltip === 'fabric'" class="btn-tooltip">{{ t("app.mainwindow.addinstance.tooltipConflict") }}</span>
-                  </div>
-                  <div class="version-combobox" ref="fabricSelectRef">
-                    <button
-                      class="combo-trigger"
-                      :class="{ disabled: !loaderEnabled }"
-                      :disabled="!loaderEnabled"
-                      @click.stop="loaderEnabled && (fabricDropdownOpen = !fabricDropdownOpen)"
-                    >
-                      <span class="combo-text">{{ selectedFabricVersion || t('app.mainwindow.addinstance.noSelection') }}</span>
-                      <ChevronDown :size="14" class="combo-arrow" />
-                    </button>
-                    <div v-if="fabricDropdownOpen" class="combo-dropdown">
-                      <button
-                        v-for="v in fabricVersions"
-                        :key="v"
-                        class="combo-option"
-                        :class="{ active: v === selectedFabricVersion }"
-                        @click="selectedFabricVersion = v; fabricDropdownOpen = false"
-                      >{{ v }}</button>
-                    </div>
-                  </div>
-                </div>
-                <div class="loader-row">
-                  <div class="btn-wrap">
-                    <button
-                      class="loader-btn"
-                      :class="{ active: forgeEnabled, blocked: loaderEnabled }"
-                      @click="toggleForge"
-                      @mouseenter="loaderEnabled && (hoveredTooltip = 'forge')"
-                      @mouseleave="hoveredTooltip = null"
-                    >
-                      <Anvil :size="20" class="loader-icon" />
-                      <span>Forge</span>
-                    </button>
-                    <span v-if="hoveredTooltip === 'forge'" class="btn-tooltip">{{ t("app.mainwindow.addinstance.tooltipConflict") }}</span>
-                  </div>
-                  <div class="version-combobox" ref="forgeSelectRef">
-                    <button
-                      class="combo-trigger"
-                      :class="{ disabled: !forgeEnabled }"
-                      :disabled="!forgeEnabled"
-                      @click.stop="forgeEnabled && !forgeLoading && (forgeDropdownOpen = !forgeDropdownOpen)"
-                    >
-                      <span v-if="forgeLoading" class="combo-loading-text">{{ t("app.mainwindow.addinstance.forgeLoading") }}</span>
-                      <span v-else class="combo-text">{{ selectedForgeVersion }}</span>
-                      <LoaderCircle v-if="forgeLoading" :size="14" class="combo-spinner" />
-                      <ChevronDown v-else :size="14" class="combo-arrow" />
-                    </button>
-                    <div v-if="forgeDropdownOpen" class="combo-dropdown">
-                      <button
-                        v-for="v in forgeVersions"
-                        :key="v"
-                        class="combo-option"
-                        :class="{ active: v === selectedForgeVersion }"
-                        @click="selectedForgeVersion = v; forgeDropdownOpen = false"
-                      >{{ v }}</button>
-                    </div>
-                  </div>
-                </div>
+               <div class="v-divider"></div>
+                <div class="loaders-area">
+                 <div class="loader-row" :class="{ 'global-disabled': isOldVersion }">
+                   <div class="btn-wrap">
+                     <button
+                       class="loader-btn"
+                       :class="{ active: loaderEnabled, blocked: forgeEnabled }"
+                       :disabled="isOldVersion"
+                       @click="toggleFabric"
+                       @mouseenter="forgeEnabled && (hoveredTooltip = 'fabric')"
+                       @mouseleave="hoveredTooltip = null"
+                     >
+                       <img :src="fabricIcon" class="loader-icon" />
+                       <span>Fabric</span>
+                     </button>
+                     <span v-if="hoveredTooltip === 'fabric'" class="btn-tooltip">{{ t("app.mainwindow.addinstance.tooltipConflict") }}</span>
+                   </div>
+                   <div class="version-combobox" ref="fabricSelectRef">
+                     <button
+                       class="combo-trigger"
+                       :class="{ disabled: !loaderEnabled || isOldVersion }"
+                       :disabled="!loaderEnabled || isOldVersion"
+                       @click.stop="loaderEnabled && (fabricDropdownOpen = !fabricDropdownOpen)"
+                     >
+                       <span class="combo-text">{{ selectedFabricVersion || t('app.mainwindow.addinstance.noSelection') }}</span>
+                       <ChevronDown :size="14" class="combo-arrow" />
+                     </button>
+                     <div v-if="fabricDropdownOpen" class="combo-dropdown">
+                       <button
+                         v-for="v in fabricVersions"
+                         :key="v"
+                         class="combo-option"
+                         :class="{ active: v === selectedFabricVersion }"
+                         :disabled="isOldVersion"
+                         @click="selectedFabricVersion = v; fabricDropdownOpen = false"
+                       >{{ v }}</button>
+                     </div>
+                   </div>
+                 </div>
+                <div class="loader-row" :class="{ 'global-disabled': isOldVersion }">
+                   <div class="btn-wrap">
+                     <button
+                       class="loader-btn"
+                       :class="{ active: forgeEnabled, blocked: loaderEnabled }"
+                       :disabled="isOldVersion"
+                       @click="toggleForge"
+                       @mouseenter="loaderEnabled && (hoveredTooltip = 'forge')"
+                       @mouseleave="hoveredTooltip = null"
+                     >
+                       <Anvil :size="20" class="loader-icon" />
+                       <span>Forge</span>
+                     </button>
+                     <span v-if="hoveredTooltip === 'forge'" class="btn-tooltip">{{ t("app.mainwindow.addinstance.tooltipConflict") }}</span>
+                   </div>
+                   <div class="version-combobox" ref="forgeSelectRef">
+                     <button
+                       class="combo-trigger"
+                       :class="{ disabled: !forgeEnabled || isOldVersion }"
+                       :disabled="!forgeEnabled || isOldVersion"
+                       @click.stop="forgeEnabled && !forgeLoading && (forgeDropdownOpen = !forgeDropdownOpen)"
+                     >
+                       <span v-if="forgeLoading" class="combo-loading-text">{{ t("app.mainwindow.addinstance.forgeLoading") }}</span>
+                       <span v-else class="combo-text">{{ selectedForgeVersion }}</span>
+                       <LoaderCircle v-if="forgeLoading" :size="14" class="combo-spinner" />
+                       <ChevronDown v-else :size="14" class="combo-arrow" />
+                     </button>
+                     <div v-if="forgeDropdownOpen" class="combo-dropdown">
+                       <button
+                         v-for="v in forgeVersions"
+                         :key="v"
+                         class="combo-option"
+                         :class="{ active: v === selectedForgeVersion }"
+                         :disabled="isOldVersion"
+                         @click="selectedForgeVersion = v; forgeDropdownOpen = false"
+                       >{{ v }}</button>
+                     </div>
+                   </div>
+                 </div>
               </div>
             </template>
           </div>
@@ -304,14 +371,25 @@ function onOverlayClick(e: MouseEvent) {
                 <span>{{ t("app.mainwindow.addinstance.fabricInfo", { version: selectedFabricVersion }) }}</span>
               </div>
             </Transition>
-            <button class="pack-btn">
-              <Package :size="16" />
-              <span>安装整合包</span>
-            </button>
-            <button class="confirm-btn" :disabled="!canProceed" @click="emit('close')">
-              <span>{{ t("app.mainwindow.addinstance.confirm") }}</span>
-              <ArrowRight :size="16" />
-            </button>
+            <template v-if="installing">
+              <div class="install-progress-wrap">
+                <div class="install-label">{{ installLabel }}</div>
+                <div class="install-bar">
+                  <div class="install-bar-fill" :style="{ width: (installProgress * 100) + '%' }"></div>
+                </div>
+                <div class="install-pct">{{ Math.round(installProgress * 100) }}%</div>
+              </div>
+            </template>
+            <template v-else>
+              <button class="pack-btn">
+                <Package :size="16" />
+                <span>安装整合包</span>
+              </button>
+              <button class="confirm-btn" :disabled="!canProceed" @click="startInstall">
+                <span>{{ t("app.mainwindow.addinstance.confirm") }}</span>
+                <ArrowRight :size="16" />
+              </button>
+            </template>
           </div>
         </div>
       </template>
@@ -335,7 +413,7 @@ function onOverlayClick(e: MouseEvent) {
           </button>
         </div>
         <div class="divider"></div>
-        <McVersionSelection :search-query="searchQuery" @select-version="(id: string) => { selectedMcVersion = id; viewState = 'root' }" />
+        <McVersionSelection :search-query="searchQuery" @select-version="(id: string, type: string) => { selectedMcVersion = id; selectedMcVersionType = type; viewState = 'root' }" />
       </template>
     </div>
   </Transition>
@@ -800,6 +878,11 @@ function onOverlayClick(e: MouseEvent) {
   gap: 4px;
 }
 
+.loader-row.global-disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 .version-combobox {
   position: relative;
   flex: 1;
@@ -919,6 +1002,43 @@ function onOverlayClick(e: MouseEvent) {
   justify-content: flex-end;
   align-items: center;
   padding-top: 12px;
+}
+
+.install-progress-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.install-label {
+  font-size: 12px;
+  color: var(--title-color);
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.install-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.2);
+  overflow: hidden;
+}
+
+.install-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--sidebar-active-color);
+  transition: width 0.3s ease;
+}
+
+.install-pct {
+  font-size: 12px;
+  color: var(--title-color);
+  opacity: 0.6;
+  min-width: 36px;
+  text-align: right;
 }
 
 .fabric-info {

@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
 import { useI18n } from "vue-i18n";
-import { ListSortDescending } from "@lucide/vue";
+import { ListSortDescending, ChevronRight } from "@lucide/vue";
+import steveAvatar from "../assets/imgs/skins/avator/steve.png";
+import alexAvatar from "../assets/imgs/skins/avator/alex.png";
 
 const { t } = useI18n();
 
@@ -9,6 +11,9 @@ const props = defineProps<{
   mainItems: { id: string; label: string; icon: any; highlight?: boolean }[];
   footerItem?: { id: string; label: string; icon: any };
   activeId?: string;
+  userName?: string;
+  userType?: string;
+  userAvatar?: string;
 }>();
 
 const emit = defineEmits<{
@@ -16,9 +21,16 @@ const emit = defineEmits<{
 }>();
 
 const expanded = ref(false);
+const avatars = [steveAvatar, alexAvatar];
 
 function toggle() {
   expanded.value = !expanded.value;
+}
+
+function getAvatar(): string {
+  if (props.userAvatar) return props.userAvatar;
+  const hash = props.userName ? props.userName.charCodeAt(0) % avatars.length : 0;
+  return avatars[hash];
 }
 
 const translatedMainItems = computed(() =>
@@ -36,6 +48,15 @@ const translatedFooterItem = computed(() =>
       }
     : null
 );
+
+const userTypeLabel = computed(() => {
+  if (!props.userType) return "";
+  const map: Record<string, string> = {
+    offline: "离线账号",
+    microsoft: "微软账户",
+  };
+  return map[props.userType] || props.userType;
+});
 </script>
 
 <template>
@@ -45,6 +66,22 @@ const translatedFooterItem = computed(() =>
         <span class="nav-icon">
           <ListSortDescending :size="18" />
         </span>
+      </button>
+
+      <button
+        v-if="userName"
+        class="user-btn"
+        :class="{ active: activeId === 'account' }"
+        @click="emit('update:activeId', 'account')"
+      >
+        <img :src="getAvatar()" class="user-avatar" />
+        <Transition name="fade">
+          <div v-if="expanded" class="user-info">
+            <span class="user-name">{{ userName }}</span>
+            <span class="user-source">{{ userTypeLabel }}</span>
+          </div>
+        </Transition>
+        <ChevronRight v-if="expanded" :size="14" class="user-arrow" />
       </button>
 
       <nav class="nav">
@@ -85,7 +122,7 @@ const translatedFooterItem = computed(() =>
 
 <style scoped>
 .sidebar {
-  --sidebar-width: 48px;
+  --sidebar-width: 50px;
   --sidebar-expanded: 180px;
   width: var(--sidebar-width);
   display: flex;
@@ -110,6 +147,82 @@ const translatedFooterItem = computed(() =>
   gap: 4px;
 }
 
+.sidebar:not(.expanded) .sidebar-inner {
+  padding: 8px 7px;
+}
+
+.user-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 6px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--sidebar-color);
+  transition: background 0.15s;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.sidebar:not(.expanded) .user-btn {
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.user-btn:hover {
+  background: var(--sidebar-hover);
+  border-radius: 100px;
+}
+
+.user-btn.active {
+  background: var(--sidebar-active);
+  color: var(--sidebar-active-color);
+  border-radius: 100px;
+}
+
+.user-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  image-rendering: pixelated;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.user-name {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-source {
+  font-size: 10px;
+  opacity: 0.5;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.user-arrow {
+  margin-left: auto;
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
 .toggle-btn {
   display: flex;
   align-items: center;
@@ -125,6 +238,10 @@ const translatedFooterItem = computed(() =>
   flex-shrink: 0;
 }
 
+.sidebar:not(.expanded) .toggle-btn {
+  margin-top: 4px;
+}
+
 .toggle-btn:hover {
   background: var(--sidebar-hover);
 }
@@ -132,7 +249,7 @@ const translatedFooterItem = computed(() =>
 .nav {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 6px;
   margin-top: 8px;
 }
 
@@ -174,6 +291,7 @@ const translatedFooterItem = computed(() =>
 .nav-item {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 10px;
   width: 100%;
   padding: 8px 8px;
@@ -189,13 +307,25 @@ const translatedFooterItem = computed(() =>
   position: relative;
 }
 
+.sidebar:not(.expanded) .nav-item {
+  justify-content: center;
+  padding: 8px 0;
+  gap: 0;
+}
+
+.sidebar:not(.expanded) .nav-label {
+  display: none;
+}
+
 .nav-item:hover {
   background: var(--sidebar-hover);
+  border-radius: 100px;
 }
 
 .nav-item.active {
   background: var(--sidebar-active);
   color: var(--sidebar-active-color);
+  border-radius: 100px;
 }
 
 .nav-item.highlight {
@@ -252,5 +382,15 @@ const translatedFooterItem = computed(() =>
 
 .expanded .nav-label {
   opacity: 0.85;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 </style>

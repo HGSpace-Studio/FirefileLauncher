@@ -6,12 +6,20 @@ import logo from "./assets/logos/logo.png";
 import SettingsInterface from "./components/settings_interface.vue";
 import NewMciRoot from "./components/view/new_mci/root_interface.vue";
 import HomePage from "./components/view/HomePage.vue";
+import LibraryPage from "./components/view/rootpages/versionroot.vue";
 import ResourcesCenter from "./components/view/ResourcesCenter.vue";
+import AccountInterface from "./components/accinterface.vue";
+import OnboardingWindow from "./components/view/onboarding/OnboardingWindow.vue";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+
+const appWindow = getCurrentWindow();
+const isOobeWindow = appWindow.label === "oobe";
 
 const isMac = ref(false);
 const isLinux = ref(false);
 const isMaximized = ref(false);
-let appWindow: any = null;
 
 const mainItems = [
   { id: "home", label: "首页", icon: Home },
@@ -28,6 +36,19 @@ const activeNav = ref("home");
 const showSettings = ref(false);
 const showNewInstance = ref(false);
 
+const userName = ref("");
+const userType = ref("");
+
+async function loadAccount() {
+  try {
+    const acc = await invoke<{ name: string; account_type: string; uuid: string }>("get_current_account");
+    userName.value = acc.name;
+    userType.value = acc.account_type;
+  } catch {
+    // ignore
+  }
+}
+
 function onNavChange(id: string) {
   if (id === "settings") {
     showSettings.value = true;
@@ -42,10 +63,6 @@ function onNavChange(id: string) {
 
 onMounted(async () => {
   document.addEventListener("contextmenu", (e) => e.preventDefault());
-
-  const { getCurrentWindow } = await import("@tauri-apps/api/window");
-  const { listen } = await import("@tauri-apps/api/event");
-  appWindow = getCurrentWindow();
   const ua = navigator.userAgent.toLowerCase();
   isMac.value = ua.includes("mac");
   isLinux.value = ua.includes("linux");
@@ -54,6 +71,14 @@ onMounted(async () => {
   listen("tauri://resize", () => {
     appWindow?.isMaximized().then((v: boolean) => (isMaximized.value = v));
   });
+
+  loadAccount();
+
+  listen("account-refresh", () => {
+    loadAccount();
+  });
+
+  window.addEventListener("account-changed", loadAccount);
 });
 
 function minimize() {
@@ -71,48 +96,59 @@ function closeWindow() {
 }
 </script>
  <template>
-  <div class="titlebar" :class="{ 'is-win': !isMac && !isLinux, 'is-linux': isLinux }" data-tauri-drag-region>
-    <div v-if="isMac" class="traffic-light-area"></div>
-    <div class="logo-wrap" :class="{ 'is-mac': isMac }">
-      <img class="logo" :src="logo" alt="" />
-      <span class="logo-text">Firefiles Launcher</span>
+  <OnboardingWindow v-if="isOobeWindow" />
+  <template v-else>
+    <div class="titlebar" :class="{ 'is-win': !isMac && !isLinux, 'is-linux': isLinux }" data-tauri-drag-region>
+      <div v-if="isMac" class="traffic-light-area"></div>
+      <div class="logo-wrap" :class="{ 'is-mac': isMac }">
+        <img class="logo" :src="logo" alt="" />
+        <span class="logo-text">Firefiles Launcher</span>
+      </div>
+      <span class="title"></span>
+      <div v-if="!isMac" class="win-controls">
+        <button class="win-btn" @click="minimize">
+          <svg width="12" height="12" viewBox="0 0 12 12">
+            <rect x="1" y="5.5" width="10" height="1" fill="currentColor" />
+          </svg>
+        </button>
+        <button class="win-btn" @click="toggleMaximize">
+          <svg v-if="!isMaximized" width="12" height="12" viewBox="0 0 12 12">
+            <rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.1" />
+          </svg>
+          <svg v-else width="12" height="12" viewBox="0 0 12 12">
+            <rect x="2.5" y="4.5" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1" />
+            <rect x="3.5" y="2.5" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1" />
+          </svg>
+        </button>
+        <button class="win-btn close" @click="closeWindow">
+          <svg width="12" height="12" viewBox="0 0 12 12">
+            <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.2" />
+            <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.2" />
+          </svg>
+        </button>
+      </div>
     </div>
-    <span class="title"></span>
-    <div v-if="!isMac" class="win-controls">
-      <button class="win-btn" @click="minimize">
-        <svg width="12" height="12" viewBox="0 0 12 12">
-          <rect x="1" y="5.5" width="10" height="1" fill="currentColor" />
-        </svg>
-      </button>
-      <button class="win-btn" @click="toggleMaximize">
-        <svg v-if="!isMaximized" width="12" height="12" viewBox="0 0 12 12">
-          <rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.1" />
-        </svg>
-        <svg v-else width="12" height="12" viewBox="0 0 12 12">
-          <rect x="2.5" y="4.5" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1" />
-          <rect x="3.5" y="2.5" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1" />
-        </svg>
-      </button>
-      <button class="win-btn close" @click="closeWindow">
-        <svg width="12" height="12" viewBox="0 0 12 12">
-          <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.2" />
-          <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.2" />
-        </svg>
-      </button>
+    <div class="viewport">
+      <Sidebar
+        :mainItems="mainItems"
+        :footerItem="footerItem"
+        :activeId="activeNav"
+        :userName="userName"
+        :userType="userType"
+        @update:active-id="onNavChange"
+      />
+      <main class="content">
+        <HomePage v-if="activeNav === 'home'" />
+        <LibraryPage v-else-if="activeNav === 'library'" @open-new-instance="showNewInstance = true" />
+        <ResourcesCenter v-else-if="activeNav === 'resourcescenter'" />
+        <AccountInterface v-else-if="activeNav === 'account'" />
+      </main>
+      <SettingsInterface v-if="showSettings" @close="showSettings = false" />
+      <NewMciRoot v-if="showNewInstance" @close="showNewInstance = false" @navigate="(id: string) => { showNewInstance = false; activeNav = id }" />
     </div>
-  </div>
-  <div class="viewport">
-    <Sidebar :mainItems="mainItems" :footerItem="footerItem" :activeId="activeNav" @update:active-id="onNavChange" />
-    <main class="content">
-      <HomePage v-if="activeNav === 'home'" />
-      <div v-else-if="activeNav === 'library'" class="nav-placeholder">{{ activeNav }}</div>
-      <ResourcesCenter v-else-if="activeNav === 'resourcescenter'" />
-    </main>
     <SettingsInterface v-if="showSettings" @close="showSettings = false" />
-    <NewMciRoot v-if="showNewInstance" @close="showNewInstance = false" />
-  </div>
-  <SettingsInterface v-if="showSettings" @close="showSettings = false" />
-  <NewMciRoot v-if="showNewInstance" @close="showNewInstance = false" />
+    <NewMciRoot v-if="showNewInstance" @close="showNewInstance = false" @navigate="(id: string) => { showNewInstance = false; activeNav = id }" />
+  </template>
 </template>
 
 <style>

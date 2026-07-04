@@ -36,7 +36,7 @@ function isAprilFools(id: string): boolean {
 }
 
 const emit = defineEmits<{
-  (e: "select-version", id: string): void;
+  (e: "select-version", id: string, type: string): void;
 }>();
 
 const loading = ref(true);
@@ -156,7 +156,7 @@ function setTab(tab: string) {
           v-for="v in filteredVersions"
           :key="v.id"
           class="version-card-item"
-          @click="emit('select-version', v.id)"
+          @click="emit('select-version', v.id, v.type)"
         >
           <img :src="mcIcon" class="version-card-icon" />
           <div class="version-card-info">
