@@ -1,3 +1,4 @@
+use futures_util::StreamExt;
 use minecraft_java_rs_core::launcher::events::LaunchEvent;
 use minecraft_java_rs_core::launcher::options::{
     JavaOptions, LaunchOptions, LoaderConfig, MemoryConfig, ScreenConfig,
@@ -7,11 +8,10 @@ use minecraft_java_rs_core::models::loader::LoaderType;
 use minecraft_java_rs_core::models::minecraft::Authenticator;
 use minecraft_java_rs_core::utils::auth::offline_uuid;
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
-use tokio::sync::mpsc;
-use futures_util::StreamExt;
 use std::io::Write;
 use std::sync::Arc;
+use tauri::{AppHandle, Emitter, Manager};
+use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 
 pub type GameStopSignal = Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>;
@@ -75,14 +75,23 @@ pub async fn get_system_memory() -> Result<SystemMemory, String> {
     let mem = tokio::task::spawn_blocking(|| {
         let mut sys = sysinfo::System::new();
         sys.refresh_memory();
-        (sys.total_memory() / 1024 / 1024, sys.used_memory() / 1024 / 1024)
-    }).await.map_err(|e| format!("{e}"))?;
-    Ok(SystemMemory { total_mb: mem.0, used_mb: mem.1 })
+        (
+            sys.total_memory() / 1024 / 1024,
+            sys.used_memory() / 1024 / 1024,
+        )
+    })
+    .await
+    .map_err(|e| format!("{e}"))?;
+    Ok(SystemMemory {
+        total_mb: mem.0,
+        used_mb: mem.1,
+    })
 }
 
 #[tauri::command]
 pub async fn get_java_versions() -> Result<Vec<JavaInstall>, String> {
-    let results = tokio::task::spawn_blocking(|| discover_java()).await
+    let results = tokio::task::spawn_blocking(discover_java)
+        .await
         .map_err(|e| format!("Java discovery task failed: {e}"))?;
     Ok(results)
 }
@@ -133,7 +142,12 @@ fn discover_java() -> Vec<JavaInstall> {
         // Also scan /Library/Java/JavaVirtualMachines/
         if let Ok(entries) = std::fs::read_dir("/Library/Java/JavaVirtualMachines/") {
             for entry in entries.flatten() {
-                let java_bin = entry.path().join("Contents").join("Home").join("bin").join("java");
+                let java_bin = entry
+                    .path()
+                    .join("Contents")
+                    .join("Home")
+                    .join("bin")
+                    .join("java");
                 if java_bin.exists() {
                     if let Some(info) = probe_java(&java_bin) {
                         if seen.insert(info.path.clone()) {
@@ -202,7 +216,11 @@ fn discover_java() -> Vec<JavaInstall> {
     }
 
     // 5. Check PATH for `java`
-    let java_cmd = if cfg!(target_os = "windows") { "java.exe" } else { "java" };
+    let java_cmd = if cfg!(target_os = "windows") {
+        "java.exe"
+    } else {
+        "java"
+    };
     if let Ok(path_var) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_var) {
             let java_bin = dir.join(java_cmd);
@@ -226,12 +244,7 @@ fn probe_java(path: &std::path::Path) -> Option<JavaInstall> {
         .output()
         .ok()?;
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let version = stderr
-        .lines()
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_string();
+    let version = stderr.lines().next().unwrap_or("").trim().to_string();
     Some(JavaInstall {
         path: path_str,
         version,
@@ -296,18 +309,25 @@ pub struct LaunchArgs {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "type")]
 pub enum MinecraftEvent {
-    Progress { kind: String, downloaded: u64, total: u64 },
-    Data { line: String },
-    Close { code: i32 },
-    Error { message: String },
+    Progress {
+        kind: String,
+        downloaded: u64,
+        total: u64,
+    },
+    Data {
+        line: String,
+    },
+    Close {
+        code: i32,
+    },
+    Error {
+        message: String,
+    },
     GameDownloadFinished,
 }
 
 #[tauri::command]
-pub async fn launch_minecraft(
-    app: AppHandle,
-    args: LaunchArgs,
-) -> Result<(), String> {
+pub async fn launch_minecraft(app: AppHandle, args: LaunchArgs) -> Result<(), String> {
     let auth = Authenticator {
         access_token: "offline".into(),
         name: args.username.clone(),
@@ -390,28 +410,17 @@ pub async fn launch_minecraft(
                     );
                 }
                 LaunchEvent::Data(line) => {
-                    let _ = app_clone.emit(
-                        "minecraft-output",
-                        MinecraftEvent::Data { line },
-                    );
+                    let _ = app_clone.emit("minecraft-output", MinecraftEvent::Data { line });
                 }
                 LaunchEvent::Close(code) => {
-                    let _ = app_clone.emit(
-                        "minecraft-exit",
-                        MinecraftEvent::Close { code },
-                    );
+                    let _ = app_clone.emit("minecraft-exit", MinecraftEvent::Close { code });
                 }
                 LaunchEvent::Error(msg) => {
-                    let _ = app_clone.emit(
-                        "minecraft-error",
-                        MinecraftEvent::Error { message: msg },
-                    );
+                    let _ =
+                        app_clone.emit("minecraft-error", MinecraftEvent::Error { message: msg });
                 }
                 LaunchEvent::GameDownloadFinished => {
-                    let _ = app_clone.emit(
-                        "minecraft-ready",
-                        MinecraftEvent::GameDownloadFinished,
-                    );
+                    let _ = app_clone.emit("minecraft-ready", MinecraftEvent::GameDownloadFinished);
                 }
                 _ => {}
             }
@@ -419,7 +428,10 @@ pub async fn launch_minecraft(
     });
 
     if args.download_only {
-        launcher.download_game(tx).await.map_err(|e| e.to_string())?;
+        launcher
+            .download_game(tx)
+            .await
+            .map_err(|e| e.to_string())?;
     } else {
         let mut child = launcher.start(tx).await.map_err(|e| e.to_string())?;
         let _ = app.emit("minecraft-ready", serde_json::json!({}));
@@ -502,8 +514,10 @@ pub fn init_oobe_environment() -> Result<OobeSettings, String> {
     }
 
     let settings = OobeSettings::default();
-    let json = serde_json::to_string_pretty(&settings).map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    std::fs::write(get_settings_path(), &json).map_err(|e| format!("Failed to write settings.json: {}", e))?;
+    let json = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+    std::fs::write(get_settings_path(), &json)
+        .map_err(|e| format!("Failed to write settings.json: {}", e))?;
 
     Ok(settings)
 }
@@ -512,8 +526,10 @@ pub fn init_oobe_environment() -> Result<OobeSettings, String> {
 pub fn save_oobe_settings(settings: OobeSettings) -> Result<(), String> {
     let mc_dir = get_minecraft_dir();
     std::fs::create_dir_all(&mc_dir).map_err(|e| format!("Failed to create .minecraft: {}", e))?;
-    let json = serde_json::to_string_pretty(&settings).map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    std::fs::write(get_settings_path(), &json).map_err(|e| format!("Failed to write settings.json: {}", e))?;
+    let json = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+    std::fs::write(get_settings_path(), &json)
+        .map_err(|e| format!("Failed to write settings.json: {}", e))?;
     Ok(())
 }
 
@@ -525,7 +541,8 @@ pub fn rollback_oobe() -> Result<(), String> {
         std::fs::remove_file(&settings_path).ok();
     }
     if mc_dir.exists() {
-        std::fs::remove_dir_all(&mc_dir).map_err(|e| format!("Failed to remove .minecraft: {}", e))?;
+        std::fs::remove_dir_all(&mc_dir)
+            .map_err(|e| format!("Failed to remove .minecraft: {}", e))?;
     }
     Ok(())
 }
@@ -536,8 +553,10 @@ pub fn check_oobe_completed() -> Result<bool, String> {
     if !path.exists() {
         return Ok(false);
     }
-    let content = std::fs::read_to_string(&path).map_err(|e| format!("Failed to read settings.json: {}", e))?;
-    let settings: OobeSettings = serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings.json: {}", e))?;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read settings.json: {}", e))?;
+    let settings: OobeSettings = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse settings.json: {}", e))?;
     Ok(settings.oobe_completed)
 }
 
@@ -547,8 +566,10 @@ pub fn get_oobe_settings() -> Result<OobeSettings, String> {
     if !path.exists() {
         return Ok(OobeSettings::default());
     }
-    let content = std::fs::read_to_string(&path).map_err(|e| format!("Failed to read settings.json: {}", e))?;
-    let settings: OobeSettings = serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings.json: {}", e))?;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read settings.json: {}", e))?;
+    let settings: OobeSettings = serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse settings.json: {}", e))?;
     Ok(settings)
 }
 
@@ -568,7 +589,8 @@ pub struct CurrentAccount {
 pub fn get_current_account() -> Result<CurrentAccount, String> {
     let path = get_settings_path();
     if path.exists() {
-        let content = std::fs::read_to_string(&path).map_err(|e| format!("Failed to read settings.json: {}", e))?;
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read settings.json: {}", e))?;
         if let Ok(settings) = serde_json::from_str::<OobeSettings>(&content) {
             if !settings.account_name.is_empty() {
                 let uuid = offline_uuid(&settings.account_name);
@@ -594,7 +616,6 @@ pub fn get_current_account() -> Result<CurrentAccount, String> {
         uuid: String::new(),
     })
 }
-
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LoaderEntry {
@@ -641,8 +662,10 @@ pub struct VersionJson {
 pub fn finish_oobe(settings: OobeSettings, app_handle: tauri::AppHandle) -> Result<(), String> {
     let mut s = settings;
     s.oobe_completed = true;
-    let json = serde_json::to_string_pretty(&s).map_err(|e| format!("Failed to serialize settings: {}", e))?;
-    std::fs::write(get_settings_path(), &json).map_err(|e| format!("Failed to write settings.json: {}", e))?;
+    let json = serde_json::to_string_pretty(&s)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+    std::fs::write(get_settings_path(), &json)
+        .map_err(|e| format!("Failed to write settings.json: {}", e))?;
 
     if let Some(main_window) = app_handle.get_webview_window("main") {
         let _ = main_window.show();
@@ -694,10 +717,13 @@ pub async fn install_instance(
     std::fs::create_dir_all(&instance_dir)
         .map_err(|e| format!("Failed to create instance dir: {}", e))?;
 
-    let _ = app.emit("install-progress", serde_json::json!({
-        "step": "manifest",
-        "progress": 0.0
-    }));
+    let _ = app.emit(
+        "install-progress",
+        serde_json::json!({
+            "step": "manifest",
+            "progress": 0.0
+        }),
+    );
 
     let manifest_url = "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json";
     let manifest_resp = reqwest::get(manifest_url)
@@ -708,14 +734,19 @@ pub async fn install_instance(
         .await
         .map_err(|e| format!("Failed to parse version manifest: {}", e))?;
 
-    let version_info = manifest.versions.iter()
+    let version_info = manifest
+        .versions
+        .iter()
         .find(|v| v.id == mc_version)
         .ok_or_else(|| format!("Version {} not found in manifest", mc_version))?;
 
-    let _ = app.emit("install-progress", serde_json::json!({
-        "step": "version_json",
-        "progress": 0.2
-    }));
+    let _ = app.emit(
+        "install-progress",
+        serde_json::json!({
+            "step": "version_json",
+            "progress": 0.2
+        }),
+    );
 
     let version_json_resp = reqwest::get(&version_info.url)
         .await
@@ -731,10 +762,13 @@ pub async fn install_instance(
     std::fs::write(&version_json_path, &version_json_content)
         .map_err(|e| format!("Failed to write version JSON: {}", e))?;
 
-    let _ = app.emit("install-progress", serde_json::json!({
-        "step": "client_jar",
-        "progress": 0.4
-    }));
+    let _ = app.emit(
+        "install-progress",
+        serde_json::json!({
+            "step": "client_jar",
+            "progress": 0.4
+        }),
+    );
 
     let jar_url = &version_json.downloads.client.url;
     let jar_path = instance_dir.join(format!("{}.jar", &name));
@@ -757,17 +791,23 @@ pub async fn install_instance(
 
         if total_size > 0 {
             let progress = 0.4 + (downloaded as f64 / total_size as f64) * 0.4;
-            let _ = app.emit("install-progress", serde_json::json!({
-                "step": "client_jar",
-                "progress": progress
-            }));
+            let _ = app.emit(
+                "install-progress",
+                serde_json::json!({
+                    "step": "client_jar",
+                    "progress": progress
+                }),
+            );
         }
     }
 
-    let _ = app.emit("install-progress", serde_json::json!({
-        "step": "finalize",
-        "progress": 0.9
-    }));
+    let _ = app.emit(
+        "install-progress",
+        serde_json::json!({
+            "step": "finalize",
+            "progress": 0.9
+        }),
+    );
 
     let loader = loader_type.map(|lt| LoaderEntry {
         r#type: lt,
@@ -787,10 +827,13 @@ pub async fn install_instance(
     instances.push(new_entry);
     write_instances_list(&instances)?;
 
-    let _ = app.emit("install-progress", serde_json::json!({
-        "step": "done",
-        "progress": 1.0
-    }));
+    let _ = app.emit(
+        "install-progress",
+        serde_json::json!({
+            "step": "done",
+            "progress": 1.0
+        }),
+    );
 
     Ok(())
 }

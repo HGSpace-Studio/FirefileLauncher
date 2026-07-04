@@ -1,7 +1,6 @@
 mod launcher;
 
 use tauri::Manager;
-use tauri::WebviewWindowBuilder;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -20,15 +19,22 @@ pub fn run() {
             let oobe_needed = !launcher::check_oobe_completed().unwrap_or(false);
 
             if oobe_needed {
-                let oobe_window = WebviewWindowBuilder::new(app, "oobe", tauri::WebviewUrl::App("index.html".into()))
+                #[cfg(target_os = "macos")]
+                {
+                    use tauri::WebviewWindowBuilder;
+                    let oobe_window = WebviewWindowBuilder::new(
+                        app,
+                        "oobe",
+                        tauri::WebviewUrl::App("index.html".into()),
+                    )
                     .title("Firefile Launcher - 初始化设置")
                     .inner_size(700.0, 560.0)
                     .resizable(false)
                     .center()
                     .build()?;
 
-                #[cfg(target_os = "macos")]
-                oobe_window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
+                    oobe_window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
+                }
 
                 main_window.hide()?;
             } else {
