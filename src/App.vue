@@ -94,11 +94,30 @@ function toggleMaximize() {
 function closeWindow() {
   appWindow?.close();
 }
+
+function handleTitlebarMouseDown(e: MouseEvent) {
+  // 如果点击的是按钮或交互元素，不触发拖拽
+  const target = e.target as HTMLElement;
+  if (
+    target.closest("button") ||
+    target.closest("input") ||
+    target.closest("select") ||
+    target.closest("a")
+  ) {
+    return;
+  }
+  // Windows: 由 CSS -webkit-app-region: drag 处理
+  // macOS: 由 titleBarStyle 原生处理
+  // Linux (WebKitGTK 不支持 -webkit-app-region): 使用 Tauri 手动拖拽 API
+  if (isLinux.value) {
+    appWindow?.startDragging();
+  }
+}
 </script>
  <template>
   <OnboardingWindow v-if="isOobeWindow" />
   <template v-else>
-    <div class="titlebar" :class="{ 'is-win': !isMac && !isLinux, 'is-linux': isLinux }" data-tauri-drag-region>
+    <div class="titlebar" :class="{ 'is-win': !isMac && !isLinux, 'is-linux': isLinux }" @mousedown="handleTitlebarMouseDown">
       <div v-if="isMac" class="traffic-light-area"></div>
       <div class="logo-wrap" :class="{ 'is-mac': isMac }">
         <img class="logo" :src="logo" alt="" />
@@ -185,6 +204,7 @@ body {
   user-select: none;
   background: var(--panel-bg);
   border-radius: 16px 16px 0 0;
+  -webkit-app-region: drag;
 }
 
 .titlebar.is-mac {
@@ -243,6 +263,7 @@ body {
 .win-controls {
   display: flex;
   height: 100%;
+  -webkit-app-region: no-drag;
 }
 
 .win-btn {
@@ -256,6 +277,7 @@ body {
   cursor: pointer;
   color: var(--title-color);
   transition: background 0.1s;
+  -webkit-app-region: no-drag;
 }
 
 .win-btn:hover {
