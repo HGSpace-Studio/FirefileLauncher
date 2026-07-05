@@ -14,13 +14,9 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             main_window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
 
-            #[cfg(target_os = "windows")]
-            main_window.set_decorations(false)?;
-
             let oobe_needed = !launcher::check_oobe_completed().unwrap_or(false);
 
             if oobe_needed {
-                #[cfg(target_os = "macos")]
                 {
                     use tauri::WebviewWindowBuilder;
                     let oobe_window = WebviewWindowBuilder::new(
@@ -34,7 +30,12 @@ pub fn run() {
                     .center()
                     .build()?;
 
+                    #[cfg(target_os = "macos")]
                     oobe_window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
+                    #[cfg(target_os = "linux")]
+                    oobe_window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
+                    #[cfg(not(target_os = "macos"))]
+                    let _ = oobe_window;
                 }
 
                 main_window.hide()?;

@@ -179,7 +179,22 @@ function onDocMouseDown(e: MouseEvent) {
 
 const overlayRef = ref<HTMLElement | null>(null);
 
+function handleClose() {
+  if (installing.value) {
+    // 取消安装：清理进度监听。后端的下载请求无法中止，
+    // 但组件卸载后 UI 会关闭，用户可以重新发起安装。
+    if (unlistenProgress) {
+      unlistenProgress();
+      unlistenProgress = null;
+    }
+    installing.value = false;
+  }
+  emit("close");
+}
+
 function onOverlayClick(e: MouseEvent) {
+  // To prevent user to click blank place to cancel installation occasionally
+  if (installing.value) return;
   if (e.target === overlayRef.value) {
     emit("close");
   }
@@ -243,7 +258,7 @@ onUnmounted(() => {
             </span>
             <span class="title">{{ t("app.mainwindow.sidebar.add-instance") }}</span>
           </div>
-          <button class="close-btn" @click="emit('close')">
+          <button class="close-btn" @click="handleClose">
             <X :size="18" />
           </button>
         </div>
