@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { message } from "@tauri-apps/plugin-dialog";
 import { useI18n } from "vue-i18n";
 import { getSystemLocale } from "../../../i18n";
 import { Languages, Palette, Coffee, User, CheckCircle, X, ChevronRight, ChevronLeft, LoaderCircle, Ellipsis, Globe, GitCommitHorizontal, ArrowDownToLine } from "@lucide/vue";
@@ -211,6 +212,11 @@ function cancelExit() {
 let unlistenClose: (() => void) | null = null;
 
 onMounted(async () => {
+  await message("您正在使用测试版本的Firefiles Launcher，一部分功能的工作可能会异常，也有一些未完工的功能，我们都将在以后的版本中完善它们。", {
+    title: "开发版本声明",
+    kind: "info",
+  });
+
   try {
     settings.value = await invoke<OobeSettings>("init_oobe_environment");
     initialized.value = true;
