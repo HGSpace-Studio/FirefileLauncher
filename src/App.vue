@@ -117,8 +117,7 @@ function handleTitlebarMouseDown(e: MouseEvent) {
  <template>
   <OnboardingWindow v-if="isOobeWindow" />
   <template v-else>
-    <div class="titlebar" :class="{ 'is-win': !isMac && !isLinux, 'is-linux': isLinux }" @mousedown="handleTitlebarMouseDown">
-      <div v-if="isMac" class="traffic-light-area"></div>
+    <div class="titlebar" :class="{ 'is-win': !isMac && !isLinux, 'is-linux': isLinux, 'is-mac': isMac }" @mousedown="handleTitlebarMouseDown">
       <div class="logo-wrap" :class="{ 'is-mac': isMac }">
         <img class="logo" :src="logo" alt="" />
         <span class="logo-text">Firefiles Launcher</span>
@@ -208,13 +207,20 @@ body {
 }
 
 .titlebar.is-mac {
+  padding-left: 70px;
   border-radius: 0 16px 0 0;
+  position: relative;
 }
 
-.traffic-light-area {
+.titlebar.is-mac::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
   width: 70px;
-  min-width: 70px;
   height: 100%;
+  -webkit-app-region: no-drag;
+  z-index: 1;
 }
 
 .logo-wrap {
@@ -222,10 +228,6 @@ body {
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
-}
-
-.logo-wrap.is-mac {
-  margin-left: 19px;
 }
 
 .titlebar.is-win .logo-wrap,
