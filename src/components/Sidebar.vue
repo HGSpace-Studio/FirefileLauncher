@@ -75,13 +75,11 @@ const userTypeLabel = computed(() => {
         @click="emit('update:activeId', 'account')"
       >
         <img :src="getAvatar()" class="user-avatar" />
-        <Transition name="fade">
-          <div v-if="expanded" class="user-info">
-            <span class="user-name">{{ userName }}</span>
-            <span class="user-source">{{ userTypeLabel }}</span>
-          </div>
-        </Transition>
-        <ChevronRight v-if="expanded" :size="14" class="user-arrow" />
+        <div class="user-info" :class="{ collapsed: !expanded }">
+          <span class="user-name">{{ userName }}</span>
+          <span class="user-source">{{ userTypeLabel }}</span>
+        </div>
+        <ChevronRight :size="14" class="user-arrow" :class="{ collapsed: !expanded }" />
       </button>
 
       <nav class="nav">
@@ -147,10 +145,6 @@ const userTypeLabel = computed(() => {
   gap: 4px;
 }
 
-.sidebar:not(.expanded) .sidebar-inner {
-  padding: 8px 7px;
-}
-
 .user-btn {
   display: flex;
   align-items: center;
@@ -162,14 +156,14 @@ const userTypeLabel = computed(() => {
   background: transparent;
   cursor: pointer;
   color: var(--sidebar-color);
-  transition: background 0.15s;
+  transition: background 0.15s, gap 0.25s ease, padding 0.25s ease;
   flex-shrink: 0;
   position: relative;
 }
 
 .sidebar:not(.expanded) .user-btn {
-  justify-content: center;
-  padding: 8px 0;
+  padding: 6px 9px;
+  gap: 0;
 }
 
 .user-btn:hover {
@@ -197,6 +191,15 @@ const userTypeLabel = computed(() => {
   gap: 1px;
   min-width: 0;
   overflow: hidden;
+  transition: max-width 0.25s ease, opacity 0.2s ease, margin 0.25s ease;
+  max-width: 120px;
+  opacity: 1;
+}
+
+.user-info.collapsed {
+  max-width: 0;
+  opacity: 0;
+  margin: 0;
 }
 
 .user-name {
@@ -221,6 +224,15 @@ const userTypeLabel = computed(() => {
   margin-left: auto;
   opacity: 0.4;
   flex-shrink: 0;
+  transition: opacity 0.25s ease, max-width 0.25s ease, margin 0.25s ease;
+  max-width: 14px;
+  overflow: hidden;
+}
+
+.user-arrow.collapsed {
+  max-width: 0;
+  opacity: 0;
+  margin: 0;
 }
 
 .toggle-btn {
@@ -236,10 +248,6 @@ const userTypeLabel = computed(() => {
   color: var(--sidebar-color);
   transition: background 0.15s;
   flex-shrink: 0;
-}
-
-.sidebar:not(.expanded) .toggle-btn {
-  margin-top: 4px;
 }
 
 .toggle-btn:hover {
@@ -292,7 +300,6 @@ const userTypeLabel = computed(() => {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 10px;
   width: 100%;
   padding: 8px 8px;
   border: none;
@@ -301,20 +308,25 @@ const userTypeLabel = computed(() => {
   cursor: pointer;
   font-size: 13px;
   font-family: inherit;
-  transition: background 0.15s;
+  transition: background 0.15s, gap 0.25s ease, padding 0.25s ease;
   white-space: nowrap;
   color: var(--sidebar-color);
   position: relative;
 }
 
+.expanded .nav-item {
+  gap: 10px;
+}
+
 .sidebar:not(.expanded) .nav-item {
-  justify-content: center;
-  padding: 8px 0;
   gap: 0;
+  padding: 8px 9px;
 }
 
 .sidebar:not(.expanded) .nav-label {
-  display: none;
+  max-width: 0;
+  opacity: 0;
+  margin: 0;
 }
 
 .nav-item:hover {
@@ -345,10 +357,6 @@ const userTypeLabel = computed(() => {
   height: auto;
 }
 
-.expanded .nav-item.highlight {
-  border-radius: 18px;
-}
-
 .nav-item.highlight:hover {
   background: rgba(0, 120, 212, 0.18);
 }
@@ -375,22 +383,19 @@ const userTypeLabel = computed(() => {
 }
 
 .nav-label {
-  opacity: 0;
   overflow: hidden;
-  transition: opacity 0.2s ease;
+  white-space: nowrap;
+  transition: max-width 0.25s ease, opacity 0.2s ease, margin 0.25s ease;
+  max-width: 0;
+  opacity: 0;
+  margin: 0;
 }
 
 .expanded .nav-label {
+  max-width: 150px;
   opacity: 0.85;
+  margin: 0;
 }
 
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
 
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
 </style>
