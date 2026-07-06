@@ -124,24 +124,24 @@ function handleTitlebarMouseDown(e: MouseEvent) {
       </div>
       <span class="title"></span>
       <div v-if="!isMac" class="win-controls">
-        <button class="win-btn" @click="minimize">
+        <button class="win-btn minimize" @click="minimize">
           <svg width="12" height="12" viewBox="0 0 12 12">
-            <rect x="1" y="5.5" width="10" height="1" fill="currentColor" />
+            <line x1="1.5" y1="6" x2="10.5" y2="6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
           </svg>
         </button>
-        <button class="win-btn" @click="toggleMaximize">
+        <button class="win-btn maximize" @click="toggleMaximize">
           <svg v-if="!isMaximized" width="12" height="12" viewBox="0 0 12 12">
-            <rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.1" />
+            <rect x="1.5" y="1.5" width="9" height="9" rx="0.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
           </svg>
           <svg v-else width="12" height="12" viewBox="0 0 12 12">
-            <rect x="2.5" y="4.5" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1" />
-            <rect x="3.5" y="2.5" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1" />
+            <rect x="2" y="4" width="7" height="7" rx="0.5" fill="none" stroke="currentColor" stroke-width="1"/>
+            <rect x="4" y="2" width="7" height="7" rx="0.5" fill="none" stroke="currentColor" stroke-width="1"/>
           </svg>
         </button>
         <button class="win-btn close" @click="closeWindow">
           <svg width="12" height="12" viewBox="0 0 12 12">
-            <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.2" />
-            <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.2" />
+            <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+            <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
           </svg>
         </button>
       </div>
@@ -230,6 +230,10 @@ body {
   flex-shrink: 0;
 }
 
+.titlebar.is-mac .logo-wrap {
+  margin-left: 9px;
+}
+
 .titlebar.is-win .logo-wrap,
 .titlebar.is-linux .logo-wrap {
   margin-left: 14px;
@@ -278,17 +282,20 @@ body {
   justify-content: center;
   cursor: pointer;
   color: var(--title-color);
-  transition: background 0.1s;
+  transition: background 0.1s, box-shadow 0.1s;
   -webkit-app-region: no-drag;
+  border-radius: 10px;
 }
 
 .win-btn:hover {
   background: rgba(0, 0, 0, 0.08);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.15);
 }
 
 .win-btn.close:hover {
   background: #e81123;
   color: #fff;
+  box-shadow: 0 0 10px rgba(232, 17, 35, 0.5);
 }
 
 .viewport {
@@ -348,10 +355,12 @@ body {
   }
   .win-btn:hover {
     background: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
   }
   .win-btn.close:hover {
     background: #e81123;
     color: #fff;
+    box-shadow: 0 0 10px rgba(232, 17, 35, 0.5);
   }
 }
 
@@ -385,10 +394,12 @@ html[data-theme="dark"] {
 
 html[data-theme="dark"] .win-btn:hover {
   background: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
 }
 
 html[data-theme="dark"] .win-btn.close:hover {
   background: #e81123;
   color: #fff;
+  box-shadow: 0 0 10px rgba(232, 17, 35, 0.5);
 }
 </style>

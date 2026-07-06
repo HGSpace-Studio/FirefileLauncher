@@ -12,10 +12,7 @@ pub fn run() {
             let main_window = app.get_webview_window("main").unwrap();
 
             #[cfg(target_os = "macos")]
-            {
-                main_window.set_decorations(true)?;
-                main_window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
-            }
+            main_window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
 
             let oobe_needed = !launcher::check_oobe_completed().unwrap_or(false);
 
