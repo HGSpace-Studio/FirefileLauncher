@@ -2,13 +2,14 @@
 import { ref, computed, watch } from "vue";
 import { onMounted, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { PackagePlus, Package, Search, X, Box, ChevronRight, ChevronDown, LoaderCircle, Anvil, ArrowRight, ArrowLeft, Info } from "@lucide/vue";
+import { PackagePlus, Package, Search, X, ChevronDown, LoaderCircle, Anvil, ArrowRight, ArrowLeft, Info } from "@lucide/vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import fabricIcon from "../../../assets/imgs/mod_loader_imgs/fabric.png";
 import mcIcon from "../../../assets/imgs/mc_oringin.png";
 import McVersionSelection from "./mcverselection_interface.vue";
 import { getCache, setCache } from "../../../utils/cache";
+import { addTask, registerInstallListeners } from "../../../stores/taskStore";
 
 interface FabricVersion {
   separator: string;
@@ -50,6 +51,7 @@ const instanceName = ref("");
 const selectedMcVersion = ref("1.21.8");
 const selectedMcVersionType = ref("release");
 
+const fabricInfoDismissed = ref(false);
 const installing = ref(false);
 const installProgress = ref(0);
 const installStep = ref("");
@@ -201,10 +203,22 @@ function onOverlayClick(e: MouseEvent) {
 }
 
 async function startInstall() {
+  fabricInfoDismissed.value = true;
   installing.value = true;
   installProgress.value = 0;
   installStep.value = "";
   installLabel.value = stepLabels["manifest"];
+
+  const taskId = "install:" + instanceName.value + "_" + Date.now()
+  addTask({
+    id: taskId,
+    type: "install",
+    title: instanceName.value,
+    status: "downloading",
+    progress: 0,
+    label: stepLabels["manifest"],
+  })
+  registerInstallListeners(taskId)
 
   unlistenProgress = await listen<{ step: string; progress: number }>("install-progress", (event) => {
     const { step, progress } = event.payload;
@@ -271,9 +285,18 @@ onUnmounted(() => {
               </div>
               <div v-else class="icon-preview" :style="{ backgroundImage: `url(${loaderEnabled ? fabricIcon : mcIcon})` }"></div>
             </div>
-            <div class="name-area">
-              <label class="name-label">{{ t("app.mainwindow.addinstance.nameLabel") }}</label>
-              <input class="name-input" type="text" :placeholder="selectedMcVersion || t('app.mainwindow.addinstance.namePlaceholder')" v-model="instanceName" />
+            <div class="name-combo">
+              <div class="name-combo-info">
+                <span class="name-combo-sub">{{ t("app.mainwindow.addinstance.nameLabel") }}</span>
+                <input class="name-combo-input" type="text" :placeholder="selectedMcVersion || t('app.mainwindow.addinstance.namePlaceholder')" v-model="instanceName" />
+              </div>
+            </div>
+            <div class="version-combo" @click="viewState = 'mc-version'">
+              <div class="version-combo-info">
+                <span class="version-combo-sub">{{ t("app.mainwindow.addinstance.versionSub") }}</span>
+                <span class="version-combo-value">{{ selectedMcVersion }}</span>
+              </div>
+              <ChevronDown :size="16" class="version-combo-arrow" />
             </div>
           </div>
           <div class="section-divider"></div>
@@ -286,19 +309,6 @@ onUnmounted(() => {
               <span>{{ t("app.mainwindow.addinstance.loadError") }} {{ loadError }}</span>
             </div>
             <template v-else>
-              <div class="version-card" @click="viewState = 'mc-version'">
-                <div class="version-section">
-                  <div class="cube-wrap">
-                    <Box :size="25" class="cube-icon" />
-                  </div>
-                  <div class="version-info">
-                    <span class="version-sub">{{ t("app.mainwindow.addinstance.versionSub") }}</span>
-                    <span class="version-value">{{ selectedMcVersion }}</span>
-                  </div>
-                </div>
-                <ChevronRight :size="18" class="card-arrow" />
-              </div>
-               <div class="v-divider"></div>
                 <div class="loaders-area">
                  <div class="loader-row" :class="{ 'global-disabled': isOldVersion }">
                    <div class="btn-wrap">
@@ -381,7 +391,7 @@ onUnmounted(() => {
           </div>
           <div class="footer">
             <Transition name="slide-right">
-              <div v-if="loaderEnabled && selectedFabricVersion" class="fabric-info">
+              <div v-if="loaderEnabled && selectedFabricVersion && !fabricInfoDismissed" class="fabric-info">
                 <Info :size="16" class="info-icon" />
                 <span>{{ t("app.mainwindow.addinstance.fabricInfo", { version: selectedFabricVersion }) }}</span>
               </div>
@@ -647,11 +657,11 @@ onUnmounted(() => {
 
 .top-row {
   display: flex;
-  gap: 16px;
+  gap: 12px;
+  align-items: flex-start;
 }
 
 .icon-box {
-  padding: 6px 0 0 6px;
   flex-shrink: 0;
 }
 
@@ -673,110 +683,108 @@ onUnmounted(() => {
   color: var(--title-color);
 }
 
-.name-area {
+.name-combo {
   flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 11px;
-}
-
-.name-label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--title-color);
-  opacity: 0.8;
-  margin-top: -8px;
-}
-
-.name-input {
-  width: 100%;
-  padding: 9px 12px;
-  font-size: 13px;
-  font-family: inherit;
-  color: var(--title-color);
-  background: var(--panel-bg);
+  padding: 11px 12px;
   border: 1px solid rgba(128, 128, 128, 0.25);
   border-radius: 8px;
-  outline: none;
+  background: var(--panel-bg);
   transition: border-color 0.15s;
   box-sizing: border-box;
-  margin-top: 12px;
+  margin-top: 7px;
 }
 
-.name-input:hover {
-  border-color: rgba(128, 128, 128, 0.4);
-}
-
-.name-input:focus {
+.name-combo:focus-within {
   border-color: #0078d4;
 }
 
-.name-input::placeholder {
+.name-combo-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.name-combo-sub {
+  font-size: 11px;
+  color: var(--title-color);
+  opacity: 0.45;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.name-combo-input {
+  all: unset;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--title-color);
+  line-height: 1.2;
+  width: 100%;
+  min-width: 0;
+}
+
+.name-combo-input::placeholder {
   opacity: 0.4;
+}
+
+.version-combo {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px 13px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 8px;
+  background: var(--panel-bg);
+  cursor: pointer;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+  min-width: 0;
+  margin-top: 6px;
+}
+
+.version-combo:hover {
+  border-color: rgba(128, 128, 128, 0.4);
+}
+
+.version-combo-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.version-combo-sub {
+  font-size: 11px;
+  color: var(--title-color);
+  opacity: 0.45;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.version-combo-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--title-color);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.version-combo-arrow {
+  color: var(--title-color);
+  opacity: 0.4;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .section-divider {
   height: 1px;
   background: rgba(128, 128, 128, 0.2);
-  margin: 16px 0;
-}
-
-.cube-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: #0078d4;
-  flex-shrink: 0;
-}
-
-.cube-icon {
-  color: #fff;
-  flex-shrink: 0;
-}
-
-.version-section {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-left: 10px;
-}
-
-.version-card {
-  background: transparent;
-  border-radius: 10px;
-  padding: 12px 16px 12px 0;
-  margin: -10px 0 0 0;
-  width: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  transition: background 0s;
-}
-
-.version-card:hover {
-  background: var(--panel-bg);
-}
-
-.card-arrow {
-  color: var(--title-color);
-  opacity: 0.4;
-  flex-shrink: 0;
-  margin-left: 10px;
-}
-
-.vertical-divider {
-  width: 1px;
-  background: rgba(128, 128, 128, 0.2);
-  margin-left: 3px;
+  margin: 12px 0 14px;
 }
 
 .card-row {
   display: flex;
-  align-items: flex-start;
   flex: 1;
   position: relative;
 }

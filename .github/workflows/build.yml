@@ -16,26 +16,42 @@ jobs:
             os: windows-latest
             target: x86_64-pc-windows-msvc
             bundles: msi,nsis
+            icon: icon.ico
+          - name: windows-x86
+            os: windows-latest
+            target: i686-pc-windows-msvc
+            bundles: msi,nsis
+            icon: icon.ico
           - name: windows-arm64
             os: windows-latest
             target: aarch64-pc-windows-msvc
             bundles: msi,nsis
+            icon: icon.ico
           - name: macos-arm64
             os: macos-14
             target: aarch64-apple-darwin
-            bundles: dmg
+            bundles: dmg,pkg
+            icon: logo.png
           - name: macos-x64
             os: macos-13
             target: x86_64-apple-darwin
-            bundles: dmg
+            bundles: dmg,pkg
+            icon: logo.png
           - name: linux-x64
             os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             bundles: deb,rpm,appimage
+            icon: logo.png
+          - name: linux-x86
+            os: ubuntu-24.04
+            target: i686-unknown-linux-gnu
+            bundles: deb
+            icon: logo.png
           - name: linux-arm64
             os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-            bundles: deb,rpm,appimage
+            bundles: deb,rpm
+            icon: logo.png
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -57,11 +73,35 @@ jobs:
         with:
           workspaces: src-tauri
 
-      - name: Install frontend dependencies
+      - name: Install frontend deps
         run: npm ci
 
-      - name: Install Linux system dependencies
-        if: runner.os == 'Linux'
+      - name: Install Linux system deps (x64)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            rpm
+
+      - name: Install Linux system deps + cross toolchain (x86)
+        if: matrix.target == 'i686-unknown-linux-gnu'
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y \
+            gcc-multilib \
+            g++-multilib \
+            libwebkit2gtk-4.1-dev:i386 \
+            libayatana-appindicator3-dev:i386 \
+            librsvg2-dev:i386 \
+            patchelf
+
+      - name: Install Linux system deps (arm64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -82,7 +122,13 @@ jobs:
             fs.writeFileSync(p, JSON.stringify(c, null, 2));
           "
 
-      - name: Setup Windows ARM64 MSVC tools
+      - name: Setup Windows MSVC tools (x86)
+        if: matrix.target == 'i686-pc-windows-msvc'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x86
+
+      - name: Setup Windows MSVC tools (arm64)
         if: matrix.target == 'aarch64-pc-windows-msvc'
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -98,24 +144,16 @@ jobs:
         shell: bash
         run: |
           mkdir -p staging
-          if [ "${{ runner.os }}" = "macOS" ]; then
-            cp src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg staging/
-          elif [ "${{ runner.os }}" = "Windows" ]; then
-            find src-tauri/target/${{ matrix.target }}/release/bundle -type f | while read f; do
-              cp "$f" staging/
-            done
-          else
-            find src-tauri/target/${{ matrix.target }}/release/bundle -type f | while read f; do
-              cp "$f" staging/
-            done
-          fi
+          find "src-tauri/target/${{ matrix.target }}/release/bundle" -type f | while read f; do
+            cp "$f" staging/
+          done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: firefile_launcher_${{ matrix.name }}
           path: staging/*
-          if-no-files-found: warn
+          if-no-files-found: error
 
   release:
     needs: build

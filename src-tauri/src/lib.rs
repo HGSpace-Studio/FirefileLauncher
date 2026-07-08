@@ -8,6 +8,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(launcher::GameStopSignal::default())
+        .manage(launcher::CrashReportState::default())
+        .manage(launcher::GameProcessState::default())
         .setup(|app| {
             let main_window = app.get_webview_window("main").unwrap();
 
@@ -66,6 +68,14 @@ pub fn run() {
             launcher::add_account,
             launcher::remove_account,
             launcher::stop_game,
+            launcher::get_instance_settings,
+            launcher::save_instance_settings,
+            launcher::check_game_running,
+            launcher::open_crash_shell,
+            launcher::get_crash_report,
+            launcher::clear_crash_report,
+            launcher::open_log_folder,
+            launcher::export_crash_log,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

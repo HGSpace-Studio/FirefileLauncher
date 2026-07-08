@@ -15,6 +15,21 @@ use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 
 pub type GameStopSignal = Arc<Mutex<Option<tokio::sync::oneshot::Sender<()>>>>;
+pub type GameProcessState = Arc<Mutex<Option<u32>>>;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CrashReport {
+    pub instance_name: String,
+    pub game_version: String,
+    pub java_version: String,
+    pub system_version: String,
+    pub error_message: String,
+    pub crash_log: String,
+    pub solution: String,
+}
+
+pub type CrashReportState = Arc<Mutex<Option<CrashReport>>>;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VersionInfo {
@@ -65,6 +80,7 @@ pub struct JavaInstall {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SystemMemory {
     pub total_mb: u64,
     pub used_mb: u64,
@@ -300,6 +316,7 @@ pub struct LaunchArgs {
     pub game_dir: String,
     pub min_mem: String,
     pub max_mem: String,
+    pub java_path: Option<String>,
     pub loader_type: Option<String>,
     pub loader_build: Option<String>,
     pub instance: Option<String>,
@@ -374,7 +391,10 @@ pub async fn launch_minecraft(app: AppHandle, args: LaunchArgs) -> Result<(), St
             min: args.min_mem,
             max: args.max_mem,
         },
-        java: JavaOptions::default(),
+        java: JavaOptions {
+            path: args.java_path.map(std::path::PathBuf::from),
+            ..Default::default()
+        },
         loader,
         screen: ScreenConfig::default(),
         verify: false,
@@ -438,22 +458,54 @@ pub async fn launch_minecraft(app: AppHandle, args: LaunchArgs) -> Result<(), St
         let mut child = launcher.start(tx).await.map_err(|e| e.to_string())?;
         let _ = app.emit("minecraft-ready", serde_json::json!({}));
 
-        let (tx_stop, rx_stop) = tokio::sync::oneshot::channel::<()>();
+        // Store the child PID for global process monitoring
+        {
+            let proc_state = app.state::<GameProcessState>();
+            *proc_state.lock().await = child.id();
+        }
+
+        let (tx_stop, mut rx_stop) = tokio::sync::oneshot::channel::<()>();
         let signal = app.state::<GameStopSignal>();
         *signal.lock().await = Some(tx_stop);
 
-        tokio::select! {
-            result = child.wait() => {
-                result.map_err(|e| e.to_string())?;
-            }
-            _ = rx_stop => {
-                let _ = child.kill().await;
-                let _ = child.wait().await;
-                let _ = app.emit("minecraft-exit", MinecraftEvent::Close { code: 0 });
+        let app_clone2 = app.clone();
+
+        // Poll the child process every 2 seconds instead of blocking on wait()
+        // This ensures we detect process exit even if the library doesn't emit
+        // LaunchEvent::Close (e.g. when game is killed via system close button)
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            let code = status.code().unwrap_or(-1);
+                            let _ = app_clone2.emit("minecraft-exit", MinecraftEvent::Close { code });
+                            break;
+                        }
+                        Ok(None) => {} // Still running, continue polling
+                        Err(e) => {
+                            let _ = app_clone2.emit("minecraft-error",
+                                MinecraftEvent::Error { message: format!("游戏进程错误: {e}") });
+                            break;
+                        }
+                    }
+                }
+                _ = &mut rx_stop => {
+                    let _ = child.kill().await;
+                    let _ = child.wait().await;
+                    let _ = app.emit("minecraft-exit", MinecraftEvent::Close { code: 0 });
+                    break;
+                }
             }
         }
 
+        // Clear the stop signal
         *signal.lock().await = None;
+        // Clear the process state
+        {
+            let proc_state = app.state::<GameProcessState>();
+            *proc_state.lock().await = None;
+        }
     }
 
     Ok(())
@@ -924,12 +976,182 @@ pub fn remove_account(name: String) -> Result<Vec<AccountEntry>, String> {
     Ok(accounts)
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceSettings {
+    pub icon: Option<String>,
+    pub skip_launcher: bool,
+    pub auto_connect_address: Option<String>,
+    pub java_version: Option<String>,
+    pub auto_memory: bool,
+    pub min_memory: String,
+    pub max_memory: String,
+    pub jvm_args: String,
+    pub game_args: String,
+    pub download_concurrency: u32,
+    pub verify_concurrency: u32,
+}
+
+impl Default for InstanceSettings {
+    fn default() -> Self {
+        Self {
+            icon: None,
+            skip_launcher: false,
+            auto_connect_address: None,
+            java_version: None,
+            auto_memory: true,
+            min_memory: "1024M".into(),
+            max_memory: "2048M".into(),
+            jvm_args: String::new(),
+            game_args: String::new(),
+            download_concurrency: 10,
+            verify_concurrency: 4,
+        }
+    }
+}
+
+fn get_instance_settings_path(name: &str) -> std::path::PathBuf {
+    get_minecraft_dir().join("versions").join(name).join("settings.json")
+}
+
+#[tauri::command]
+pub fn get_instance_settings(instance_name: String) -> Result<InstanceSettings, String> {
+    let path = get_instance_settings_path(&instance_name);
+    if !path.exists() {
+        return Ok(InstanceSettings::default());
+    }
+    let content =
+        std::fs::read_to_string(&path).map_err(|e| format!("无法读取实例设置: {e}"))?;
+    serde_json::from_str(&content).map_err(|e| format!("无法解析实例设置: {e}"))
+}
+
+#[tauri::command]
+pub fn save_instance_settings(
+    instance_name: String,
+    settings: InstanceSettings,
+) -> Result<(), String> {
+    let path = get_instance_settings_path(&instance_name);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("无法创建设置目录: {e}"))?;
+    }
+    let json = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("无法序列化设置: {e}"))?;
+    std::fs::write(&path, &json).map_err(|e| format!("无法保存设置: {e}"))
+}
+
 #[tauri::command]
 pub async fn stop_game(app: AppHandle) -> Result<(), String> {
     let signal = app.state::<GameStopSignal>();
     let mut guard = signal.lock().await;
     if let Some(tx) = guard.take() {
         let _ = tx.send(());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn check_game_running(app: AppHandle) -> Result<bool, String> {
+    let state = app.state::<GameProcessState>();
+    let pid = {
+        let guard = state.lock().await;
+        *guard
+    };
+
+    match pid {
+        Some(pid) => {
+            let running = tokio::task::spawn_blocking(move || {
+                let mut system = sysinfo::System::new();
+                system.refresh_processes(
+                    sysinfo::ProcessesToUpdate::Some(&[sysinfo::Pid::from_u32(pid)]),
+                );
+                system.process(sysinfo::Pid::from_u32(pid)).is_some()
+            })
+            .await
+            .map_err(|e| format!("Failed to check process: {e}"))?;
+            Ok(running)
+        }
+        None => Ok(false),
+    }
+}
+
+#[tauri::command]
+pub async fn open_crash_shell(app: AppHandle, report: CrashReport) -> Result<(), String> {
+    let state = app.state::<CrashReportState>();
+    {
+        let mut guard = state.lock().await;
+        *guard = Some(report);
+    }
+
+    // check if window already exists, reuse it
+    if let Some(window) = app.get_webview_window("crash-shell") {
+        window.set_focus().map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+
+    use tauri::WebviewWindowBuilder;
+    let crash_window = WebviewWindowBuilder::new(
+        &app,
+        "crash-shell",
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title("崩溃报告")
+    .inner_size(750.0, 600.0)
+    .resizable(true)
+    .center()
+    .build()
+    .map_err(|e| e.to_string())?;
+
+    #[cfg(target_os = "macos")]
+    crash_window
+        .set_title_bar_style(tauri::TitleBarStyle::Transparent)
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_crash_report(app: AppHandle) -> Result<Option<CrashReport>, String> {
+    let state = app.state::<CrashReportState>();
+    let guard = state.lock().await;
+    Ok(guard.clone())
+}
+
+#[tauri::command]
+pub async fn clear_crash_report(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<CrashReportState>();
+    let mut guard = state.lock().await;
+    *guard = None;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn open_log_folder(app: AppHandle) -> Result<(), String> {
+    let mc_dir = get_minecraft_dir();
+    let logs_dir = mc_dir.join("logs");
+    std::fs::create_dir_all(&logs_dir)
+        .map_err(|e| format!("无法创建日志目录: {e}"))?;
+    let opener = app.state::<tauri_plugin_opener::Opener<tauri::Wry>>();
+    opener
+        .open_path(logs_dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| format!("无法打开日志文件夹: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn export_crash_log(app: AppHandle, content: String) -> Result<(), String> {
+    use tauri_plugin_dialog::DialogExt;
+    let (tx, rx) = tokio::sync::oneshot::channel::<Option<std::path::PathBuf>>();
+    app.dialog()
+        .file()
+        .add_filter("日志文件", &["log", "txt"])
+        .set_file_name("crash-report.log")
+        .save_file(move |path| {
+            let _ = tx.send(path.and_then(|p| p.into_path().ok()));
+        });
+    if let Some(path) = rx.await.unwrap_or(None) {
+        std::fs::write(&path, &content)
+            .map_err(|e| format!("无法保存日志文件: {e}"))?;
     }
     Ok(())
 }

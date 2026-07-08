@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { CircleOff, Plus, Gamepad2, LoaderCircle } from "@lucide/vue";
 import { invoke } from "@tauri-apps/api/core";
 import InstanceDetail from "./instance_detail.vue";
 import type { InstanceData } from "./instance_detail.vue";
+import { pendingInstance, consumePendingInstance } from "../../../stores/navigation";
 
 const { t } = useI18n();
 
@@ -65,6 +66,13 @@ onMounted(() => {
   loadInstances();
   window.addEventListener("instance-installed", loadInstances);
 });
+
+watch(pendingInstance, (val) => {
+  if (val) {
+    const inst = consumePendingInstance();
+    if (inst) openDetail(inst as any);
+  }
+}, { immediate: true });
 
 onUnmounted(() => {
   window.removeEventListener("instance-installed", loadInstances);

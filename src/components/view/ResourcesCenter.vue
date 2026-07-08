@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { Component, Package, Sun, Grid2x2Check, LoaderCircle, ChevronLeft, ChevronRight } from "@lucide/vue";
 import { getCache, setCache } from "../../utils/cache";
@@ -54,40 +54,9 @@ const loading = ref(false);
 const projects = ref<ModrinthProject[]>([]);
 const currentPage = ref(1);
 const totalHits = ref(0);
-const pageSize = ref(10);
+const pageSize = ref(16);
 
 const totalPages = computed(() => Math.max(1, Math.ceil(totalHits.value / pageSize.value)));
-
-const areaRef = ref<HTMLElement | null>(null);
-let resizeObserver: ResizeObserver | null = null;
-let resizeTimer: ReturnType<typeof setTimeout> | null = null;
-let prevPageSize = 0;
-
-function updatePageSize() {
-  if (!areaRef.value) return;
-  const available = areaRef.value.clientHeight - 42;
-  const cardUnit = 100 + 12;
-  const newSize = Math.max(1, Math.floor(available / cardUnit));
-  if (newSize !== prevPageSize) {
-    prevPageSize = newSize;
-    pageSize.value = newSize;
-    if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      currentPage.value = 1;
-      fetchProjects();
-    }, 400);
-  }
-}
-
-onMounted(() => {
-  updatePageSize();
-  resizeObserver = new ResizeObserver(updatePageSize);
-  if (areaRef.value) resizeObserver.observe(areaRef.value);
-});
-
-onUnmounted(() => {
-  resizeObserver?.disconnect();
-});
 
 const projectTypeMap: Record<string, string> = {
   mods: "mod",
@@ -175,9 +144,18 @@ function formatDate(iso: string): string {
             <span>{{ tab.label }}</span>
           </button>
         </div>
+        <div v-if="totalPages > 1" class="pagination">
+          <button class="page-btn" :disabled="currentPage <= 1" @click="currentPage--; fetchProjects()">
+            <ChevronLeft :size="16" />
+          </button>
+          <span class="page-info">{{ currentPage }} / {{ totalPages }}</span>
+          <button class="page-btn" :disabled="currentPage >= totalPages" @click="currentPage++; fetchProjects()">
+            <ChevronRight :size="16" />
+          </button>
+        </div>
       </div>
     </div>
-    <div ref="areaRef" class="resources-area">
+    <div class="resources-area">
       <div v-if="loading" class="resources-loading">
         <LoaderCircle :size="20" class="spinner" />
         <span>正在获取资源列表...</span>
@@ -220,15 +198,6 @@ function formatDate(iso: string): string {
             </div>
           </a>
       </div>
-      <div v-if="totalPages > 1" class="pagination">
-        <button class="page-btn" :disabled="currentPage <= 1" @click="currentPage--; fetchProjects()">
-          <ChevronLeft :size="16" />
-        </button>
-        <span class="page-info">{{ currentPage }} / {{ totalPages }}</span>
-        <button class="page-btn" :disabled="currentPage >= totalPages" @click="currentPage++; fetchProjects()">
-          <ChevronRight :size="16" />
-        </button>
-      </div>
     </div>
   </div>
 </template>
@@ -261,6 +230,7 @@ function formatDate(iso: string): string {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 }
 
 .resources-header-main {
@@ -437,9 +407,7 @@ function formatDate(iso: string): string {
 .pagination {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 6px 0 16px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
@@ -447,7 +415,6 @@ function formatDate(iso: string): string {
   font-size: 13px;
   color: var(--title-color);
   opacity: 0.6;
-  min-width: 60px;
   text-align: center;
 }
 
