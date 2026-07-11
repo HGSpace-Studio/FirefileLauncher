@@ -1,130 +1,173 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { LoaderCircle, ExternalLink } from "@lucide/vue";
+import { invoke } from "@tauri-apps/api/core";
+import { Rocket } from "@lucide/vue";
 
 const { t } = useI18n();
+
+const accountName = ref("");
+
+const greeting = computed(() => {
+  const h = new Date().getHours();
+  if (h >= 0 && h <= 10) return "上午好";
+  if (h >= 11 && h <= 17) return "下午好";
+  return "晚上好";
+});
+
+onMounted(async () => {
+  try {
+    const acc = await invoke<{ name: string }>("get_current_account");
+    accountName.value = acc.name;
+  } catch {
+    accountName.value = "";
+  }
+  fetchNews();
+  fetchQuickInstance();
+});
 
 interface NewsImage {
   title: string;
   url: string;
-  dimensions?: { width: number; height: number };
 }
 
 interface NewsEntry {
   title: string;
-  tag: string;
-  category: string;
   date: string;
   text: string;
   playPageImage: NewsImage;
   newsPageImage: NewsImage;
   readMoreLink: string;
-  newsType: string[];
-  id: string;
 }
 
-interface NewsResponse {
-  version: number;
-  entries: NewsEntry[];
+interface InstanceEntry {
+  name: string;
+  version: string;
+  version_type: string;
+  loader: { type: string; version: string } | null;
+  icon: string | null;
+  installed: boolean;
 }
 
 const baseUrl = "https://launchercontent.mojang.com";
-const newsUrl = `${baseUrl}/v2/news.json`;
+const allNews = ref<NewsEntry[]>([]);
+const currentNewsIndex = ref(0);
+let rotationTimer: ReturnType<typeof setInterval> | null = null;
 
-const loading = ref(true);
-const error = ref("");
-const javaNews = ref<NewsEntry[]>([]);
+const currentNews = computed(() => allNews.value[currentNewsIndex.value]);
 
 function formatDate(iso: string): string {
   try {
     const d = new Date(iso);
-    return d.toLocaleDateString(undefined, {
-      year: "numeric",
-      month: "long",
-      day: "numeric",
-    });
+    return d.toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" });
   } catch {
     return iso;
   }
 }
 
-onMounted(async () => {
+async function fetchNews() {
   try {
-    const res = await fetch(newsUrl);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data: NewsResponse = await res.json();
-    javaNews.value = data.entries.filter(
-      (e) => e.category === "Minecraft: Java Edition"
-    );
-    if (javaNews.value.length === 0) {
-      javaNews.value = data.entries.slice(0, 10);
+    const res = await fetch(`${baseUrl}/v2/news.json`);
+    if (!res.ok) return;
+    const data = await res.json();
+    let entries: NewsEntry[] = data.entries?.filter((e: any) => e.category === "Minecraft: Java Edition") || [];
+    if (entries.length === 0) entries = data.entries || [];
+    if (entries.length > 0) {
+      allNews.value = entries;
+      currentNewsIndex.value = Math.floor(Math.random() * entries.length);
+      rotationTimer = setInterval(() => {
+        currentNewsIndex.value = (currentNewsIndex.value + 1) % allNews.value.length;
+      }, 6000);
     }
-  } catch (e: any) {
-    error.value = e.message || String(e);
-  } finally {
-    loading.value = false;
+  } catch {
   }
+}
+
+onUnmounted(() => {
+  if (rotationTimer) clearInterval(rotationTimer);
 });
+
+const quickInstance = ref<InstanceEntry | null>(null);
+const quickLaunching = ref(false);
+
+async function fetchQuickInstance() {
+  try {
+    const list = await invoke<InstanceEntry[]>("get_instances_list");
+    const installed = list.filter(i => i.installed);
+    if (installed.length > 0) quickInstance.value = installed[0];
+  } catch {}
+}
+
+async function launchQuick() {
+  if (!quickInstance.value || quickLaunching.value) return;
+  quickLaunching.value = true;
+  try {
+    const inst = quickInstance.value;
+    const acc = await invoke<{ name: string }>("get_current_account");
+    const oobe = await invoke<{ account_name: string; java_path: string }>("get_oobe_settings");
+    const mcDir = await invoke<string>("get_minecraft_dir_string");
+    await invoke("launch_minecraft", {
+      args: {
+        version: inst.version,
+        username: acc.name || oobe.account_name || "Player",
+        game_dir: mcDir,
+        min_mem: "1024",
+        max_mem: "2048",
+        loader_type: inst.loader?.type || null,
+        loader_build: inst.loader?.version || null,
+        instance: inst.name,
+        download_only: false,
+        java_path: null,
+        download_concurrency: null,
+        verify_concurrency: null,
+      },
+    });
+  } catch {}
+  quickLaunching.value = false;
+}
 </script>
 
 <template>
   <div class="home-page">
     <div class="home-header">
       <span class="home-header-sub">{{ t("app.mainwindow.home.title") }}</span>
-      <span class="home-header-main">Minecraft News</span>
+      <span class="home-header-main">{{ greeting }}，{{ accountName }}</span>
     </div>
-    <div class="news-area">
-      <div v-if="loading" class="news-loading">
-        <LoaderCircle :size="20" class="spinner" />
-        <span>{{ t("app.mainwindow.home.fetching") }}</span>
-      </div>
-      <div v-else-if="error" class="news-error">{{ t("app.mainwindow.home.loadError") }} {{ error }}</div>
-      <div v-else class="news-list">
-        <div class="hero-row">
-          <a
-            v-for="entry in javaNews.slice(0, 3)"
-            :key="entry.id"
-            :href="entry.readMoreLink"
-            target="_blank"
-            class="news-card-hero"
-          >
-            <img
-              :src="`${baseUrl}${entry.newsPageImage?.url || entry.playPageImage?.url}`"
-              :alt="entry.title"
-              class="news-card-hero-img"
-            />
-            <div class="news-card-hero-overlay"></div>
-            <div class="news-card-hero-content">
-              <span class="hero-date">{{ formatDate(entry.date) }}</span>
-              <span class="hero-title">{{ entry.title }}</span>
-              <p class="hero-text">{{ entry.text }}</p>
-            </div>
-          </a>
-        </div>
+    <div class="home-area">
+      <div class="home-row">
         <a
-          v-for="entry in javaNews.slice(3)"
-          :key="entry.id"
-          :href="entry.readMoreLink"
+          v-if="currentNews"
+          :href="currentNews.readMoreLink"
           target="_blank"
-          class="news-card"
+          class="news-hero"
+          :style="{ backgroundImage: `url(${baseUrl}${currentNews.newsPageImage?.url || currentNews.playPageImage?.url})` }"
         >
-          <img
-            v-if="entry.newsPageImage?.url"
-            :src="`${baseUrl}${entry.newsPageImage.url}`"
-            :alt="entry.title"
-            class="news-card-img"
-          />
-          <div class="news-card-body">
-            <span class="news-card-date">{{ formatDate(entry.date) }}</span>
-            <span class="news-card-title">{{ entry.title }}</span>
-            <p class="news-card-text">{{ entry.text }}</p>
-            <span class="news-card-link">
-              {{ t("app.mainwindow.home.readMore") }}
-              <ExternalLink :size="12" />
-            </span>
+          <div class="news-hero-overlay"></div>
+          <div class="news-hero-content">
+            <span class="news-hero-date">{{ formatDate(currentNews.date) }}</span>
+            <span class="news-hero-title">{{ currentNews.title }}</span>
+            <p class="news-hero-desc">{{ currentNews.text }}</p>
+          </div>
+          <div class="news-dots">
+            <span
+              v-for="(_, i) in allNews"
+              :key="i"
+              class="news-dot"
+              :class="{ active: i === currentNewsIndex }"
+            ></span>
           </div>
         </a>
+        <div v-if="quickInstance" class="quick-launch">
+          <span class="quick-launch-label">快速启动</span>
+          <div class="quick-launch-body">
+            <span class="quick-launch-name">{{ quickInstance.name }}</span>
+            <span class="quick-launch-version">{{ quickInstance.version }}</span>
+          </div>
+          <button class="quick-launch-btn" :disabled="quickLaunching" @click="launchQuick">
+            <Rocket :size="16" />
+            <span>{{ quickLaunching ? "启动中..." : "启动" }}</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -136,8 +179,13 @@ onMounted(async () => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 24px 28px;
+  padding: 24px 0 80px;
   overflow-y: auto;
+}
+
+.home-page > * {
+  padding-left: 28px;
+  padding-right: 28px;
 }
 
 .home-header {
@@ -161,181 +209,164 @@ onMounted(async () => {
   line-height: 1.2;
 }
 
-.news-area {
+.home-area {
   flex: 1;
-  margin-top: 20px;
+  margin-top: 6px;
   min-height: 0;
 }
 
-.news-loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  height: 100%;
-  color: var(--title-color);
-  opacity: 0.6;
-  font-size: 13px;
-}
-
-.news-error {
-  text-align: center;
-  color: #e74c3c;
-  font-size: 13px;
-  opacity: 0.8;
-  margin-top: 40px;
-}
-
-.spinner {
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-
-.news-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.hero-row {
+.home-row {
   display: flex;
   gap: 12px;
+  max-width: 50%;
+  max-height: 50%;
+  margin-top: 4px;
 }
 
-.news-card-hero {
+.news-hero {
   position: relative;
   flex: 1;
-  height: 440px;
   border-radius: 12px;
   overflow: hidden;
   text-decoration: none;
   color: inherit;
   cursor: pointer;
-  display: block;
-  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  background-size: cover;
+  background-position: center;
+  min-height: 320px;
 }
 
-.news-card-hero-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transition: transform 0.3s ease;
-}
-
-.news-card-hero:hover .news-card-hero-img {
-  transform: scale(1.05);
-}
-
-.news-card-hero-overlay {
+.news-hero-overlay {
   position: absolute;
   inset: 0;
-  background: linear-gradient(transparent 40%, rgba(0, 0, 0, 0.75));
+  background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.75));
   pointer-events: none;
 }
 
-.news-card-hero-content {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 20px;
+.news-hero-content {
+  position: relative;
+  z-index: 1;
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
+  width: 100%;
 }
 
-.hero-date {
+.news-hero-date {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(255, 255, 255, 0.55);
   line-height: 1;
 }
 
-.hero-title {
-  font-size: 18px;
+.news-hero-title {
+  font-size: 22px;
   font-weight: 700;
   color: #fff;
   line-height: 1.2;
 }
 
-.hero-text {
+.news-hero-desc {
   font-size: 13px;
-  color: rgba(255, 255, 255, 0.75);
+  color: rgba(255, 255, 255, 0.7);
   line-height: 1.3;
+  margin: 0;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  margin: 0;
+  max-width: 80%;
 }
 
-.news-card {
+.news-dots {
+  position: absolute;
+  top: 16px;
+  right: 16px;
   display: flex;
-  gap: 16px;
-  padding: 14px;
+  gap: 6px;
+  z-index: 1;
+}
+
+.news-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.35);
+  transition: background 0.3s;
+}
+
+.news-dot.active {
+  background: #fff;
+  width: 20px;
+  border-radius: 4px;
+}
+
+.quick-launch {
+  width: 260px;
+  flex-shrink: 0;
   border-radius: 12px;
   background: var(--panel-bg);
-  text-decoration: none;
-  color: inherit;
-  transition: background 0.15s;
-  cursor: pointer;
-}
-
-.news-card:hover {
-  background: rgba(128, 128, 128, 0.12);
-}
-
-.news-card-img {
-  width: 180px;
-  height: 100px;
-  border-radius: 8px;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.news-card-body {
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  flex: 1;
+  gap: 12px;
+  min-height: 320px;
+  box-sizing: border-box;
 }
 
-.news-card-date {
-  font-size: 11px;
-  color: var(--title-color);
-  opacity: 0.45;
-  line-height: 1;
-}
-
-.news-card-title {
-  font-size: 14px;
+.quick-launch-label {
+  font-size: 13px;
   font-weight: 600;
   color: var(--title-color);
-  line-height: 1.3;
+  opacity: 0.6;
 }
 
-.news-card-text {
+.quick-launch-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+}
+
+.quick-launch-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--title-color);
+  line-height: 1.2;
+}
+
+.quick-launch-version {
   font-size: 12px;
   color: var(--title-color);
-  opacity: 0.7;
-  line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
+  opacity: 0.5;
 }
 
-.news-card-link {
+.quick-launch-btn {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  color: var(--sidebar-active-color);
-  margin-top: auto;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px;
+  border: none;
+  border-radius: 10px;
+  background: var(--sidebar-active-color);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.quick-launch-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.quick-launch-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

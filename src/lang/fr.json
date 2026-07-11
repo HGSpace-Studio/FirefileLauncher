@@ -3,6 +3,7 @@
   "app.mainwindow.sidebar.library": "Bibliothèque",
   "app.mainwindow.sidebar.resourcescenter": "Centre de ressources",
   "app.mainwindow.sidebar.add-instance": "Nouvelle instance",
+  "app.mainwindow.sidebar.account": "Compte",
   "app.mainwindow.sidebar.settings": "Paramètres",
   "app.mainwindow.sidebar.collapse": "Réduire",
   "app.mainwindow.sidebar.expand": "Développer",

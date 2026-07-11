@@ -169,30 +169,22 @@ function formatDate(iso: string): string {
             :key="project.project_id"
             :href="`https://modrinth.com/${project.project_type}/${project.slug}`"
             target="_blank"
-            class="project-card-hero"
+            class="project-card"
           >
-            <img
-              :src="project.icon_url || ''"
-              :alt="project.title"
-              class="project-card-hero-img"
-            />
-            <div class="project-card-hero-overlay"></div>
-            <div class="project-card-hero-content">
-              <div class="project-card-row">
-                <img :src="project.icon_url" class="project-card-mc-icon" />
-                <div class="project-card-info">
-                  <span class="project-card-title">{{ project.title }}</span>
-                  <span class="project-card-meta">
-                    更新于 {{ formatDate(project.date_modified) }}
+            <div class="project-card-inner">
+              <img :src="project.icon_url" class="project-card-icon" />
+              <div class="project-card-body">
+                <span class="project-card-title">{{ project.title }}</span>
+                <span class="project-card-meta">
+                  更新于 {{ formatDate(project.date_modified) }}
+                </span>
+                <div class="project-card-tags">
+                  <span v-if="project.loaders.length" class="project-tag">
+                    {{ project.loaders.slice(0, 3).join(", ") }}
                   </span>
-                  <div class="project-card-tags">
-                    <span v-if="project.loaders.length" class="project-tag">
-                      {{ project.loaders.slice(0, 3).join(", ") }}
-                    </span>
-                    <span v-if="project.game_versions.length" class="project-tag">
-                      {{ project.game_versions.slice(0, 3).join(", ") }}
-                    </span>
-                  </div>
+                  <span v-if="project.game_versions.length" class="project-tag">
+                    {{ project.game_versions.slice(0, 3).join(", ") }}
+                  </span>
                 </div>
               </div>
             </div>
@@ -208,8 +200,13 @@ function formatDate(iso: string): string {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 24px 28px;
+  padding: 24px 0 80px;
   overflow-y: auto;
+}
+
+.resources-page > * {
+  padding-left: 28px;
+  padding-right: 28px;
 }
 
 .resources-header {
@@ -316,83 +313,66 @@ function formatDate(iso: string): string {
   min-height: 0;
 }
 
-.project-card-hero {
-  position: relative;
+.project-card {
   width: 100%;
   height: 100px;
   border-radius: 12px;
-  overflow: hidden;
   text-decoration: none;
   color: inherit;
   cursor: pointer;
   display: block;
   flex-shrink: 0;
+  background: transparent;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  transition: box-shadow 0.25s, transform 0.25s;
 }
 
-.project-card-hero-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transition: transform 0.3s ease;
+.project-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
 }
 
-.project-card-hero:hover .project-card-hero-img {
-  transform: scale(1.05);
-}
-
-.project-card-hero-overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(transparent 30%, rgba(0, 0, 0, 0.8));
-  pointer-events: none;
-}
-
-.project-card-hero-content {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 16px;
-}
-
-.project-card-row {
+.project-card-inner {
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  height: 100%;
 }
 
-.project-card-mc-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 8px;
+.project-card-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
   flex-shrink: 0;
+  object-fit: cover;
 }
 
-.project-card-info {
+.project-card-body {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
 }
 
 .project-card-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
-  color: #fff;
+  color: var(--title-color);
   line-height: 1.2;
 }
 
 .project-card-meta {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.6);
+  color: var(--title-color);
+  opacity: 0.45;
   line-height: 1;
 }
 
 .project-card-tags {
   display: flex;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: 2px;
   flex-wrap: wrap;
 }
 
@@ -400,8 +380,9 @@ function formatDate(iso: string): string {
   font-size: 11px;
   padding: 2px 8px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.15);
-  color: rgba(255, 255, 255, 0.85);
+  background: rgba(128, 128, 128, 0.12);
+  color: var(--title-color);
+  opacity: 0.7;
 }
 
 .pagination {

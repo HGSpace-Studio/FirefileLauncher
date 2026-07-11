@@ -3,6 +3,7 @@
   "app.mainwindow.sidebar.library": "Библиотека",
   "app.mainwindow.sidebar.resourcescenter": "Центр ресурсов",
   "app.mainwindow.sidebar.add-instance": "Новый экземпляр",
+  "app.mainwindow.sidebar.account": "Аккаунт",
   "app.mainwindow.sidebar.settings": "Настройки",
   "app.mainwindow.sidebar.collapse": "Свернуть",
   "app.mainwindow.sidebar.expand": "Развернуть",

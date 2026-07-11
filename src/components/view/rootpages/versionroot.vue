@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from "vue";
+import { ref, type Ref, inject, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { CircleOff, Plus, Gamepad2, LoaderCircle } from "@lucide/vue";
 import { invoke } from "@tauri-apps/api/core";
 import InstanceDetail from "./instance_detail.vue";
 import type { InstanceData } from "./instance_detail.vue";
 import { pendingInstance, consumePendingInstance } from "../../../stores/navigation";
+import { currentInstanceName } from "../../../stores/instanceLaunch";
 
 const { t } = useI18n();
 
@@ -25,6 +26,18 @@ interface InstanceEntry {
 const instances = ref<InstanceEntry[]>([]);
 const loading = ref(true);
 const selectedInstance = ref<InstanceData | null>(null);
+const showingInstance = inject<Ref<boolean>>('showingInstance');
+
+watch(selectedInstance, (val) => {
+  if (showingInstance) showingInstance.value = val !== null;
+}, { immediate: true });
+
+const goBackLib = inject<Ref<number>>('goBackLib');
+if (goBackLib) {
+  watch(goBackLib, () => {
+    if (goBackLib.value) { onBack(); goBackLib.value = 0; }
+  });
+}
 
 async function loadInstances() {
   loading.value = true;
@@ -49,6 +62,7 @@ function getLoaderLabel(inst: InstanceEntry): string {
 }
 
 function openDetail(inst: InstanceEntry) {
+  currentInstanceName.value = inst.name
   selectedInstance.value = {
     name: inst.name,
     version: inst.version,
@@ -59,6 +73,7 @@ function openDetail(inst: InstanceEntry) {
 }
 
 function onBack() {
+  currentInstanceName.value = null;
   selectedInstance.value = null;
 }
 
@@ -131,8 +146,13 @@ onUnmounted(() => {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 24px 28px;
+  padding: 24px 0 80px;
   overflow-y: auto;
+}
+
+.lib-page > * {
+  padding-left: 28px;
+  padding-right: 28px;
 }
 
 .lib-header {
@@ -168,8 +188,8 @@ onUnmounted(() => {
   gap: 6px;
   padding: 7px 16px;
   border: none;
-  border-radius: 100px;
-  background: var(--sidebar-active-color);
+  border-radius: 10px;
+  background: #0078d4;
   color: #fff;
   font-size: 13px;
   font-weight: 500;
@@ -231,7 +251,7 @@ onUnmounted(() => {
   padding: 20px 16px;
   border: none;
   border-radius: 12px;
-  background: var(--panel-bg);
+  background: transparent;
   cursor: pointer;
   transition: background 0.15s, transform 0.15s;
   text-align: center;

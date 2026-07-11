@@ -1090,7 +1090,7 @@ pub async fn open_crash_shell(app: AppHandle, report: CrashReport) -> Result<(),
     }
 
     use tauri::WebviewWindowBuilder;
-    let crash_window = WebviewWindowBuilder::new(
+    let crash_builder = WebviewWindowBuilder::new(
         &app,
         "crash-shell",
         tauri::WebviewUrl::App("index.html".into()),
@@ -1098,9 +1098,12 @@ pub async fn open_crash_shell(app: AppHandle, report: CrashReport) -> Result<(),
     .title("崩溃报告")
     .inner_size(750.0, 600.0)
     .resizable(true)
-    .center()
-    .build()
-    .map_err(|e| e.to_string())?;
+    .center();
+
+    #[cfg(not(target_os = "macos"))]
+    let crash_builder = crash_builder.decorations(false);
+
+    let crash_window = crash_builder.build().map_err(|e| e.to_string())?;
 
     #[cfg(target_os = "macos")]
     crash_window

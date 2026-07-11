@@ -180,8 +180,13 @@ onMounted(loadAccounts);
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 24px 28px;
+  padding: 24px 0 80px;
   overflow-y: auto;
+}
+
+.acc-page > * {
+  padding-left: 28px;
+  padding-right: 28px;
 }
 
 .acc-header {

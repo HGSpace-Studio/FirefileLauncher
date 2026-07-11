@@ -13,6 +13,9 @@ pub fn run() {
         .setup(|app| {
             let main_window = app.get_webview_window("main").unwrap();
 
+            #[cfg(not(target_os = "macos"))]
+            main_window.set_decorations(false)?;
+
             #[cfg(target_os = "macos")]
             main_window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
 
@@ -21,7 +24,7 @@ pub fn run() {
             if oobe_needed {
                 {
                     use tauri::WebviewWindowBuilder;
-                    let oobe_window = WebviewWindowBuilder::new(
+                    let oobe_builder = WebviewWindowBuilder::new(
                         app,
                         "oobe",
                         tauri::WebviewUrl::App("index.html".into()),
@@ -29,15 +32,15 @@ pub fn run() {
                     .title("Firefile Launcher - 初始化设置")
                     .inner_size(700.0, 560.0)
                     .resizable(false)
-                    .center()
-                    .build()?;
+                    .center();
+
+                    #[cfg(not(target_os = "macos"))]
+                    let oobe_builder = oobe_builder.decorations(false);
+
+                    let oobe_window = oobe_builder.build()?;
 
                     #[cfg(target_os = "macos")]
                     oobe_window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
-                    #[cfg(target_os = "linux")]
-                    oobe_window.set_title_bar_style(tauri::TitleBarStyle::Overlay)?;
-                    #[cfg(not(target_os = "macos"))]
-                    let _ = oobe_window;
                 }
 
                 main_window.hide()?;

@@ -1,673 +1,526 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from "vue";
-import Sidebar from "./components/Sidebar.vue";
-import { Home, Settings, LayoutGridIcon, Store, Plus, Bolt, Square, ChevronRight } from "@lucide/vue";
+import { ref, computed, provide, onMounted } from "vue";
 import { useTaskStore } from "./stores/taskStore";
 import { navigateToInstance } from "./stores/navigation";
+import { currentInstanceName, currentLaunchFn, currentStopFn } from "./stores/instanceLaunch";
+import { openedInstances } from "./stores/openedInstances";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { listen } from "@tauri-apps/api/event";
+import { invoke } from "@tauri-apps/api/core";
+import { Home, Store, LayoutGridIcon, Plus, Settings, Bolt, Square, ChevronRight, Play, LoaderCircle, Gamepad2 } from "@lucide/vue";
 import logo from "./assets/logos/logo.png";
-import SettingsInterface from "./components/settings_interface.vue";
+import steve from "./assets/imgs/skins/avator/steve.png";
+import alex from "./assets/imgs/skins/avator/alex.png";
+
 import NewMciRoot from "./components/view/new_mci/root_interface.vue";
 import HomePage from "./components/view/HomePage.vue";
 import LibraryPage from "./components/view/rootpages/versionroot.vue";
 import ResourcesCenter from "./components/view/ResourcesCenter.vue";
 import AccountInterface from "./components/accinterface.vue";
+import SettingsInterface from "./components/settings_interface.vue";
 import OnboardingWindow from "./components/view/onboarding/OnboardingWindow.vue";
 import CrashShell from "./components/view/window/crush_shell.vue";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
+const app = getCurrentWindow();
+const isOobe = app.label === "oobe";
+const isCrash = app.label === "crash-shell";
 
-const appWindow = getCurrentWindow();
-const isOobeWindow = appWindow.label === "oobe";
-const isCrashShellWindow = appWindow.label === "crash-shell";
-
-const isMac = ref(false);
-const isLinux = ref(false);
-const isMaximized = ref(false);
-
-const mainItems = [
-  { id: "home", label: "首页", icon: Home },
-  
-  { id: "resourcescenter", label: "资源中心", icon: Store },
-  { id: "library", label: "库", icon: LayoutGridIcon },
-  { id: "add-instance", label: "新建实例", icon: Plus, highlight: true },
-];
-
-const footerItem = { id: "settings", label: "设置", icon: Settings };
-
-const activeNav = ref("home");
-
+const isMac = navigator.userAgent.toLowerCase().includes("mac");
+const isLinux = navigator.userAgent.toLowerCase().includes("linux");
+const maxed = ref(false);
+const nav = ref("home");
 const showSettings = ref(false);
-const showNewInstance = ref(false);
-
+const showNewInst = ref(false);
+const showingInstance = ref(false);
+provide('showingInstance', showingInstance);
+const goBackLib = ref(0);
+provide('goBackLib', goBackLib);
+const taskOpen = ref(false);
 const userName = ref("");
 const userType = ref("");
-const taskDropdownOpen = ref(false);
+
+const avatar = computed(() => {
+  const imgs = [steve, alex];
+  const i = userName.value ? userName.value.charCodeAt(0) % 2 : 0;
+  return imgs[i];
+});
+
+const userLabel = computed(() => {
+  const m: Record<string, string> = { offline: "离线账号", microsoft: "微软账户" };
+  return m[userType.value] || "";
+});
+
+const navItems = [
+  { id: "home", icon: Home },
+  { id: "resourcescenter", icon: Store },
+  { id: "library", icon: LayoutGridIcon },
+  { id: "add-instance", icon: Plus },
+  { id: "settings", icon: Settings },
+];
 const taskTab = ref<"tasks" | "running">("tasks");
-
 const { tasks } = useTaskStore();
-const runningTasks = computed(() => tasks.value.filter(t => t.status === "running"))
+const running = computed(() => tasks.value.filter(t => t.status === "running"));
+const dockTask = computed(() => {
+  if (!currentInstanceName.value) return null;
+  return tasks.value.find(t => t.id === "launch:" + currentInstanceName.value) || null;
+});
 
-function goToInstance(inst: { name: string; version: string; version_type: string; loader?: { type: "fabric" | "forge" | "neoforge" | "quilt"; version: string }; icon?: string }) {
-  taskDropdownOpen.value = false;
+function onDockLaunch() {
+  if (dockTask.value?.status === "running" && currentStopFn.value) {
+    currentStopFn.value();
+  } else if (currentLaunchFn.value) {
+    currentLaunchFn.value();
+  }
+}
+
+function onNav(id: string) {
+  if (id === "settings") { showSettings.value = true; return; }
+  if (id === "add-instance") { showNewInst.value = true; return; }
+  if (id === "library" && showingInstance.value) {
+    goBackLib.value++;
+    return;
+  }
+  nav.value = id;
+}
+
+function goInst(inst: any) {
+  taskOpen.value = false;
+  nav.value = 'library';
   navigateToInstance(inst);
-  onNavChange("library");
 }
 
 async function loadAccount() {
   try {
-    const acc = await invoke<{ name: string; account_type: string; uuid: string }>("get_current_account");
-    userName.value = acc.name;
-    userType.value = acc.account_type;
-  } catch {
-    // ignore
-  }
-}
-
-function onNavChange(id: string) {
-  if (id === "settings") {
-    showSettings.value = true;
-    return;
-  }
-  if (id === "add-instance") {
-    showNewInstance.value = true;
-    return;
-  }
-  activeNav.value = id;
+    const a = await invoke<{ name: string; account_type: string; uuid: string }>("get_current_account");
+    userName.value = a.name;
+    userType.value = a.account_type;
+  } catch {}
 }
 
 onMounted(async () => {
-  document.addEventListener("contextmenu", (e) => e.preventDefault());
-  const ua = navigator.userAgent.toLowerCase();
-  isMac.value = ua.includes("mac");
-  isLinux.value = ua.includes("linux");
-
-  isMaximized.value = await appWindow.isMaximized();
-  listen("tauri://resize", () => {
-    appWindow?.isMaximized().then((v: boolean) => (isMaximized.value = v));
-  });
-
+  document.addEventListener("contextmenu", e => e.preventDefault());
+  maxed.value = await app.isMaximized();
+  listen("tauri://resize", async () => { maxed.value = await app.isMaximized(); });
   loadAccount();
-
-  listen("account-refresh", () => {
-    loadAccount();
-  });
-
+  listen("account-refresh", loadAccount);
   window.addEventListener("account-changed", loadAccount);
-
-  document.addEventListener("click", (e) => {
-    const target = e.target as HTMLElement;
-    if (!target.closest(".task-btn-wrap")) {
-      taskDropdownOpen.value = false;
-    }
+  document.addEventListener("click", e => {
+    if (!(e.target as HTMLElement).closest(".task-wrap")) taskOpen.value = false;
   });
 });
-
-function minimize() {
-  appWindow?.minimize();
-}
-
-function toggleMaximize() {
-  appWindow?.toggleMaximize().then(() =>
-    appWindow?.isMaximized().then((v: boolean) => (isMaximized.value = v))
-  );
-}
-
-function closeWindow() {
-  appWindow?.close();
-}
-
-function handleTitlebarMouseDown(e: MouseEvent) {
-  // 如果点击的是按钮或交互元素，不触发拖拽
-  const target = e.target as HTMLElement;
-  if (
-    target.closest("button") ||
-    target.closest("input") ||
-    target.closest("select") ||
-    target.closest("a")
-  ) {
-    return;
-  }
-  // Windows: 由 CSS -webkit-app-region: drag 处理
-  // macOS: 由 titleBarStyle 原生处理
-  // Linux (WebKitGTK 不支持 -webkit-app-region): 使用 Tauri 手动拖拽 API
-  if (isLinux.value) {
-    appWindow?.startDragging();
-  }
-}
 </script>
- <template>
-  <OnboardingWindow v-if="isOobeWindow" />
-  <CrashShell v-else-if="isCrashShellWindow" />
-  <template v-else>
-    <div class="titlebar" :class="{ 'is-win': !isMac && !isLinux, 'is-linux': isLinux, 'is-mac': isMac }" @mousedown="handleTitlebarMouseDown">
-      <div class="logo-wrap" :class="{ 'is-mac': isMac }">
-        <img class="logo" :src="logo" alt="" />
-        <span class="logo-text">Firefiles Launcher</span>
+
+<template>
+  <OnboardingWindow v-if="isOobe" />
+  <CrashShell v-else-if="isCrash" />
+  <div v-else class="root">
+    <header class="bar" :class="{ mac: isMac }" @mousedown="(e: MouseEvent) => { const t = e.target as HTMLElement; if (isLinux && !t.closest('button,input,select,a')) app.startDragging(); }">
+      <div class="bar-left">
+        <img class="barlogo" :src="logo" />
+        <span class="bartitle" v-if="!isMac">Firefiles Launcher</span>
       </div>
-      <span class="title"></span>
-      <div class="task-btn-wrap">
-        <button class="task-btn" @click.stop="taskDropdownOpen = !taskDropdownOpen">
-          <Bolt :size="16" />
-          <span class="task-btn-label">{{ tasks.length > 0 ? tasks.length + ' 个任务进行中' : '还没有任务啊' }}</span>
-        </button>
-        <div v-if="taskDropdownOpen" class="task-dropdown">
-          <div class="task-dropdown-tabs">
-            <button class="task-dropdown-tab" :class="{ active: taskTab === 'tasks' }" @click="taskTab = 'tasks'">
-              下载任务
-            </button>
-            <button class="task-dropdown-tab" :class="{ active: taskTab === 'running' }" @click="taskTab = 'running'">
-              运行中
-            </button>
-          </div>
-          <div v-if="taskTab === 'tasks'">
-            <div v-if="tasks.length === 0" class="task-empty">暂无任务</div>
-            <div v-for="task in tasks" :key="task.id" class="task-item">
-              <div class="task-item-header">
-                <span class="task-item-title">{{ task.title }}</span>
-                <span class="task-item-type">{{ task.type === 'launch' ? '启动' : '安装' }}</span>
-              </div>
-              <span class="task-item-label">{{ task.label }}</span>
-              <div class="task-item-bar">
-                <div class="task-item-fill" :style="{ width: (task.progress * 100) + '%' }"></div>
+      <div class="bar-center"></div>
+      <div class="bar-right">
+        <div class="task-wrap">
+          <button class="taskbtn" @click.stop="taskOpen = !taskOpen">
+            <Bolt :size="16" />
+            <span class="tasklbl">{{ tasks.length > 0 ? tasks.length + ' 个任务进行中' : '还没有任务啊' }}</span>
+          </button>
+          <div v-if="taskOpen" class="taskdrop">
+            <div class="tasktabs">
+              <button class="tasktab" :class="{ on: taskTab === 'tasks' }" @click="taskTab = 'tasks'">下载任务</button>
+              <button class="tasktab" :class="{ on: taskTab === 'running' }" @click="taskTab = 'running'">运行中</button>
+            </div>
+            <div v-if="taskTab === 'tasks'">
+              <div v-if="!tasks.length" class="taskempty">暂无任务</div>
+              <div v-for="t in tasks" :key="t.id" class="titem">
+                <div class="tih">
+                  <span class="titl">{{ t.title }}</span>
+                  <span class="titype">{{ t.type === 'launch' ? '启动' : '安装' }}</span>
+                </div>
+                <span class="tlabel">{{ t.label }}</span>
+                <div class="tibar"><div class="tifill" :style="{ width: (t.progress * 100) + '%' }"></div></div>
               </div>
             </div>
-          </div>
-          <div v-if="taskTab === 'running'">
-            <div v-if="runningTasks.length === 0" class="task-empty">没有运行中的游戏</div>
-            <div v-for="task in runningTasks" :key="task.id" class="task-item">
-              <div class="task-item-header">
-                <span class="task-item-title">{{ task.title }}</span>
-              </div>
-              <div class="task-item-actions">
-                <button class="task-item-action-btn stop" @click="invoke('stop_game')" title="停止">
-                  <Square :size="14" />
-                </button>
-                <button class="task-item-action-btn" @click="goToInstance({ name: task.title, version: '', version_type: '' })" title="跳转">
-                  <ChevronRight :size="14" />
-                </button>
+            <div v-if="taskTab === 'running'">
+              <div v-if="!running.length" class="taskempty">没有运行中的游戏</div>
+              <div v-for="t in running" :key="t.id" class="titem">
+                <div class="tih"><span class="titl">{{ t.title }}</span></div>
+                <div class="tiactions">
+                  <button class="tiaction stop" @click="invoke('stop_game')"><Square :size="14" /></button>
+                  <button class="tiaction" @click="goInst({ name: t.title, version: '', version_type: '' })"><ChevronRight :size="14" /></button>
+                </div>
               </div>
             </div>
           </div>
         </div>
+        <div v-if="!isMac" class="winctrl">
+          <button class="wbtn" @click="app.minimize()">
+            <svg width="12" height="12" viewBox="0 0 12 12"><line x1="1.5" y1="6" x2="10.5" y2="6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </button>
+          <button class="wbtn" @click="app.toggleMaximize().then(() => app.isMaximized().then(v => maxed = v))">
+            <svg v-if="!maxed" width="12" height="12" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" rx="0.5" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+            <svg v-else width="12" height="12" viewBox="0 0 12 12"><rect x="2" y="4" width="7" height="7" rx="0.5" fill="none" stroke="currentColor" stroke-width="1"/><rect x="4" y="2" width="7" height="7" rx="0.5" fill="none" stroke="currentColor" stroke-width="1"/></svg>
+          </button>
+          <button class="wbtn close" @click="app.close()">
+            <svg width="12" height="12" viewBox="0 0 12 12"><line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>
+          </button>
+        </div>
       </div>
-      <div v-if="!isMac" class="win-controls">
-        <button class="win-btn minimize" @click="minimize">
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <line x1="1.5" y1="6" x2="10.5" y2="6" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-          </svg>
+    </header>
+    <main class="main">
+      <HomePage v-show="nav === 'home'" />
+      <LibraryPage v-show="nav === 'library'" @open-new-instance="showNewInst = true" />
+      <ResourcesCenter v-show="nav === 'resourcescenter'" />
+      <AccountInterface v-show="nav === 'account'" />
+    </main>
+    <NewMciRoot v-if="showNewInst" @close="showNewInst = false" @navigate="(id: string) => { showNewInst = false; nav = id }" />
+    <div class="dock-wrap">
+      <nav class="dock">
+        <button v-if="userName" class="daccount" @click="onNav('account')">
+          <img :src="avatar" class="davatar" />
+          <div class="daccinfo">
+            <span class="daccname">{{ userName }}</span>
+            <span class="dacctype">{{ userLabel }}</span>
+          </div>
         </button>
-        <button class="win-btn maximize" @click="toggleMaximize">
-          <svg v-if="!isMaximized" width="12" height="12" viewBox="0 0 12 12">
-            <rect x="1.5" y="1.5" width="9" height="9" rx="0.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
-          </svg>
-          <svg v-else width="12" height="12" viewBox="0 0 12 12">
-            <rect x="2" y="4" width="7" height="7" rx="0.5" fill="none" stroke="currentColor" stroke-width="1"/>
-            <rect x="4" y="2" width="7" height="7" rx="0.5" fill="none" stroke="currentColor" stroke-width="1"/>
-          </svg>
+        <div class="dsep"></div>
+        <button
+          v-for="item in navItems.slice(0, 3)"
+          :key="item.id"
+          class="ditem"
+          :class="{ on: nav === item.id && !(item.id === 'library' && showingInstance) }"
+          @click="onNav(item.id)"
+        >
+          <component :is="item.icon" :size="21" />
         </button>
-        <button class="win-btn close" @click="closeWindow">
-          <svg width="12" height="12" viewBox="0 0 12 12">
-            <line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-            <line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
-          </svg>
+        <div class="dsep"></div>
+        <button
+          v-for="inst in openedInstances"
+          :key="inst.name"
+          class="ditem inst-icon"
+          :class="{ on: nav === 'library' && currentInstanceName === inst.name }"
+          @click="goInst(inst)"
+        >
+          <Gamepad2 :size="18" />
         </button>
-      </div>
-    </div>
-    <div class="viewport">
-      <Sidebar
-        :mainItems="mainItems"
-        :footerItem="footerItem"
-        :activeId="activeNav"
-        :userName="userName"
-        :userType="userType"
-        @update:active-id="onNavChange"
-      />
-      <main class="content">
-        <HomePage v-if="activeNav === 'home'" />
-        <LibraryPage v-else-if="activeNav === 'library'" @open-new-instance="showNewInstance = true" />
-        <ResourcesCenter v-else-if="activeNav === 'resourcescenter'" />
-        <AccountInterface v-else-if="activeNav === 'account'" />
-      </main>
-      <SettingsInterface v-if="showSettings" @close="showSettings = false" />
-      <NewMciRoot v-if="showNewInstance" @close="showNewInstance = false" @navigate="(id: string) => { showNewInstance = false; activeNav = id }" />
+        <button
+          v-for="item in navItems.slice(3)"
+          :key="item.id"
+          class="ditem"
+          :class="{ on: nav === item.id }"
+          @click="onNav(item.id)"
+        >
+          <component :is="item.icon" :size="21" />
+        </button>
+      </nav>
+      <button v-if="nav === 'library' && showingInstance" class="dlaunch" :class="{ running: dockTask?.status === 'running' }" @click="onDockLaunch">
+        <LoaderCircle v-if="dockTask?.status === 'launching'" :size="18" class="spin" />
+        <Square v-else-if="dockTask?.status === 'running'" :size="18" />
+        <Play v-else :size="18" />
+        <span>{{ dockTask?.status === 'running' ? '运行中' : dockTask?.status === 'launching' ? '启动中...' : '启动该实例' }}</span>
+      </button>
     </div>
     <SettingsInterface v-if="showSettings" @close="showSettings = false" />
-    <NewMciRoot v-if="showNewInstance" @close="showNewInstance = false" @navigate="(id: string) => { showNewInstance = false; activeNav = id }" />
-  </template>
+  </div>
 </template>
 
 <style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-html {
-  border-radius: 16px;
-  overflow: hidden;
-}
-
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { border-radius: 16px; overflow: hidden; }
 @font-face {
   font-family: "HarmonyOS Sans";
   src: url("./assets/fonts/HarmonyOS_Sans_Regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
 }
-
 body {
-  font-family: var(--app-font, "HarmonyOS Sans"), -apple-system, BlinkMacSystemFont, "Segoe UI",
-    Roboto, Helvetica, Arial, sans-serif;
-  overflow: hidden;
-  height: 100vh;
-  background: var(--panel-bg);
+  font-family: var(--app-font, "HarmonyOS Sans"), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  overflow: hidden; height: 100vh; background: #1a1a1e;
+}
+.root {
+  height: 100vh; display: flex; flex-direction: column; overflow: hidden; position: relative;
 }
 
-.titlebar {
-  display: flex;
-  align-items: center;
-  height: 38px;
-  user-select: none;
-  background: var(--panel-bg);
-  border-radius: 16px 16px 0 0;
-  -webkit-app-region: drag;
+/* titlebar */
+.bar {
+  display: flex; align-items: center; height: 38px; flex-shrink: 0;
+  background: transparent; -webkit-app-region: drag; user-select: none; z-index: 10;
 }
-
-.titlebar.is-mac {
-  padding-left: 70px;
-  border-radius: 0 16px 0 0;
-  position: relative;
-}
-
-.titlebar.is-mac::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 70px;
-  height: 100%;
+.bar.mac { padding-left: 70px; }
+.bar-left {
+  display: flex; align-items: center; gap: 8px; padding-left: 14px;
   -webkit-app-region: no-drag;
-  z-index: 1;
+}
+.bar.mac .bar-left { padding-left: 0; }
+.barlogo { height: 20px; width: auto; }
+.bartitle { font-size: 13px; font-weight: 600; color: var(--title-color); opacity: 0.85; white-space: nowrap; }
+.bar.mac .bartitle { display: none; }
+.bar-center { flex: 1; }
+.bar-right { display: flex; align-items: center; gap: 4px; -webkit-app-region: no-drag; }
+
+/* background */
+.root::before {
+  content: '';
+  position: fixed;
+  inset: -3px;
+  z-index: -1;
+  background: url('./assets/imgs/background/default1.png') center / cover no-repeat;
+  filter: blur(5px);
 }
 
-.logo-wrap {
+/* main */
+.main {
+  flex: 1; display: flex; overflow: hidden; margin: 0 0 0 12px; min-height: 0;
+}
+
+/* task btn */
+.task-wrap { position: relative; display: flex; align-items: center; height: 100%; }
+.taskbtn {
+  display: flex; align-items: center; gap: 6px; padding: 0 10px; height: 32px;
+  border: none; border-radius: 8px; background: rgba(128,128,128,0.08); color: var(--title-color);
+  opacity: 0.7; cursor: pointer; transition: background 0.15s, opacity 0.15s; white-space: nowrap;
+}
+.taskbtn:hover { background: rgba(128,128,128,0.18); opacity: 1; }
+.tasklbl { font-size: 12px; line-height: 1; }
+
+/* task dropdown */
+.taskdrop {
+  position: absolute; top: calc(100% + 4px); right: 0; width: 300px; max-height: 360px;
+  overflow-y: auto; background: var(--panel-bg); border: 1px solid rgba(128,128,128,0.15);
+  border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 8px; z-index: 100;
+}
+.taskempty { text-align: center; color: var(--title-color); opacity: 0.4; font-size: 13px; padding: 24px 0; }
+.tasktabs {
+  display: flex; gap: 2px; margin-bottom: 8px; padding: 2px;
+  background: rgba(128,128,128,0.08); border-radius: 8px;
+}
+.tasktab {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 6px 12px; border: none; border-radius: 6px; background: transparent;
+  color: var(--title-color); opacity: 0.5; font-size: 12px; font-family: inherit;
+  cursor: pointer; transition: background 0.15s, opacity 0.15s;
+}
+.tasktab:hover { opacity: 0.8; }
+.tasktab.on { background: var(--panel-bg); opacity: 1; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.titem {
+  display: flex; flex-direction: column; gap: 4px; padding: 10px 12px;
+  border-radius: 8px; transition: background 0.15s;
+}
+.titem:hover { background: rgba(128,128,128,0.06); }
+.titem + .titem { margin-top: 4px; }
+.tih { display: flex; align-items: center; justify-content: space-between; }
+.titl { font-size: 13px; font-weight: 600; color: var(--title-color); line-height: 1.2; }
+.titype { font-size: 11px; padding: 1px 6px; border-radius: 4px; background: rgba(128,128,128,0.1); color: var(--title-color); opacity: 0.55; }
+.tlabel { font-size: 11px; color: var(--title-color); opacity: 0.5; line-height: 1; }
+.tibar { width: 100%; height: 3px; border-radius: 2px; background: rgba(128,128,128,0.12); overflow: hidden; }
+.tifill { height: 100%; border-radius: 2px; background: #0078d4; transition: width 0.3s ease; }
+.tiactions { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.tiaction {
+  display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
+  border: none; border-radius: 6px; background: transparent; color: var(--title-color);
+  opacity: 0.45; cursor: pointer; transition: background 0.15s, opacity 0.15s;
+}
+.tiaction:hover { background: rgba(128,128,128,0.12); opacity: 0.8; }
+.tiaction.stop:hover { background: rgba(212,58,58,0.15); color: #d43a3a; opacity: 1; }
+
+/* floating dock */
+.dock-wrap {
+  position: fixed;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
+  z-index: 50;
 }
 
-.titlebar.is-mac .logo-wrap {
-  margin-left: 9px;
-}
-
-.titlebar.is-win .logo-wrap,
-.titlebar.is-linux .logo-wrap {
-  margin-left: 14px;
-}
-
-.logo {
-  height: 20px;
-  width: auto;
-}
-
-.logo-text {
-  font-size: 13px;
-  font-weight: 600;
-  opacity: 0.85;
-  white-space: nowrap;
-  color: var(--title-color);
-}
-
-.titlebar.is-win,
-.titlebar.is-linux {
-  padding-right: 0px;
-}
-
-.title {
-  flex: 1;
-  text-align: center;
-  font-size: 13px;
-  font-weight: 600;
-  opacity: 0.85;
-  color: var(--title-color);
-}
-
-.win-controls {
-  display: flex;
-  height: 100%;
-  -webkit-app-region: no-drag;
-}
-
-.win-btn {
-  width: 46px;
-  height: 100%;
-  border: none;
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--title-color);
-  transition: background 0.1s, box-shadow 0.1s;
-  -webkit-app-region: no-drag;
-  border-radius: 10px;
-}
-
-.win-btn:hover {
-  background: rgba(0, 0, 0, 0.08);
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.15);
-}
-
-.win-btn.close:hover {
-  background: #e81123;
-  color: #fff;
-  box-shadow: 0 0 10px rgba(232, 17, 35, 0.5);
-}
-
-.task-btn-wrap {
-  position: relative;
-  display: flex;
-  align-items: center;
-  height: 100%;
-  margin-right: 4px;
-  -webkit-app-region: no-drag;
-}
-
-.titlebar.is-mac .task-btn-wrap {
-  margin-right: 12px;
-}
-
-.task-btn {
+.dock {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px;
-  height: 32px;
-  border: none;
-  border-radius: 8px;
+  padding: 6px 10px;
+  border-radius: 18px;
   background: transparent;
-  color: var(--title-color);
-  opacity: 0.6;
+}
+
+.dlaunch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 18px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: #0078d4;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
   cursor: pointer;
   transition: background 0.15s, opacity 0.15s;
   white-space: nowrap;
 }
 
-.task-btn:hover {
-  background: rgba(128, 128, 128, 0.15);
-  opacity: 0.9;
+.dlaunch:hover {
+  background: #0086e6;
 }
 
-.task-btn-label {
-  font-size: 12px;
-  line-height: 1;
+.dlaunch.running {
+  background: rgba(212,58,58,0.85);
 }
 
-.task-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  width: 300px;
-  max-height: 360px;
-  overflow-y: auto;
-  background: var(--panel-bg);
-  border: 1px solid rgba(128, 128, 128, 0.15);
-  border-radius: 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-  padding: 8px;
-  z-index: 100;
+.dlaunch.running:hover {
+  background: #d43a3a;
 }
 
-.task-empty {
-  text-align: center;
-  color: var(--title-color);
-  opacity: 0.4;
-  font-size: 13px;
-  padding: 24px 0;
+.spin {
+  animation: spin 1s linear infinite;
 }
 
-.task-item {
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.daccount {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 8px;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 8px 4px 4px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
   transition: background 0.15s;
 }
 
-.task-item:hover {
-  background: rgba(128, 128, 128, 0.06);
+.daccount:hover {
+  background: var(--sidebar-hover);
 }
 
-.task-item + .task-item {
-  margin-top: 4px;
+.dsep {
+  width: 1px;
+  height: 28px;
+  background: rgba(128,128,128,0.2);
+  flex-shrink: 0;
 }
 
-.task-item-header {
+.davatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  image-rendering: pixelated;
+}
+
+.daccinfo {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 1px;
+  text-align: left;
 }
 
-.task-item-title {
+.daccname {
   font-size: 13px;
   font-weight: 600;
   color: var(--title-color);
   line-height: 1.2;
 }
 
-.task-item-type {
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: rgba(128, 128, 128, 0.1);
+.dacctype {
+  font-size: 10px;
   color: var(--title-color);
-  opacity: 0.55;
-}
-
-.task-item-label {
-  font-size: 11px;
-  color: var(--title-color);
-  opacity: 0.5;
+  opacity: 0.45;
   line-height: 1;
 }
 
-.task-item-bar {
-  width: 100%;
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(128, 128, 128, 0.12);
-  overflow: hidden;
-}
-
-.task-item-fill {
-  height: 100%;
-  border-radius: 2px;
-  background: #0078d4;
-  transition: width 0.3s ease;
-}
-
-.task-dropdown-tabs {
-  display: flex;
-  gap: 2px;
-  margin-bottom: 8px;
-  padding: 2px;
-  background: rgba(128, 128, 128, 0.08);
-  border-radius: 8px;
-}
-
-.task-dropdown-tab {
-  flex: 1;
+.ditem {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 12px;
+  width: 36px;
+  height: 36px;
   border: none;
-  border-radius: 6px;
+  border-radius: 10px;
   background: transparent;
   color: var(--title-color);
   opacity: 0.5;
-  font-size: 12px;
-  font-family: inherit;
   cursor: pointer;
   transition: background 0.15s, opacity 0.15s;
 }
 
-.task-dropdown-tab:hover {
-  opacity: 0.8;
+.ditem:hover {
+  background: var(--sidebar-hover);
+  opacity: 0.85;
 }
 
-.task-dropdown-tab.active {
-  background: var(--panel-bg);
+.ditem.on {
+  background: #0078d4;
+  color: #fff;
   opacity: 1;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-.task-item-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 4px;
-}
 
-.task-item-action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 6px;
+
+/* window controls */
+.winctrl { display: flex; height: 100%; }
+.wbtn {
+  width: 46px; height: 100%; border: none; background: transparent;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--title-color); transition: background 0.1s, box-shadow 0.1s;
+  border-radius: 10px;
+}
+.wbtn:hover { background: rgba(0,0,0,0.08); box-shadow: 0 0 10px rgba(0,0,0,0.15); }
+.wbtn.close:hover { background: #e81123; color: #fff; box-shadow: 0 0 10px rgba(232,17,35,0.5); }
+
+/* scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
   background: transparent;
-  color: var(--title-color);
-  opacity: 0.45;
-  cursor: pointer;
-  transition: background 0.15s, opacity 0.15s;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(128,128,128,0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(128,128,128,0.5);
 }
 
-.task-item-action-btn:hover {
-  background: rgba(128, 128, 128, 0.12);
-  opacity: 0.8;
+/* themes */
+:root {
+  --panel-bg: #ececec; --title-color: #1d1d1f; --sidebar-color: #1d1d1f;
+  --sidebar-hover: rgba(0,0,0,0.08); --sidebar-active: #c7c7c7;
+  --sidebar-active-color: #1d1d1f; --tooltip-bg: #1d1d1f; --tooltip-color: #f5f5f7;
+  --content-bg: #f6f6f6; --settings-icon-bg: #0078d4; --window-border: rgba(0,0,0,0.12);
+  --content-border: rgba(0,0,0,0.25); --dock-border: #c7c7c7;
 }
-
-.task-item-action-btn.stop:hover {
-  background: rgba(212, 58, 58, 0.15);
-  color: #d43a3a;
-  opacity: 1;
-}
-
-.viewport {
-  height: calc(100vh - 38px);
-  display: flex;
-  overflow: hidden;
-  border-radius: 0 0 16px 16px;
-}
-
-.content {
-  flex: 1;
-  display: flex;
-  border-radius: 13px 0 0 0;
-  overflow: hidden;
-  background: var(--content-bg);
-  border: 2px solid var(--content-border);
-  border-bottom: none;
-  border-right: none;
-  box-shadow: 0 0 12px rgba(0, 0, 0, 0.08);
-}
-
-.nav-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  opacity: 0.6;
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --panel-bg: #ececec;
-    --title-color: #1d1d1f;
-    --sidebar-color: #1d1d1f;
-    --sidebar-hover: rgba(0, 0, 0, 0.08);
-    --sidebar-active: rgba(0, 120, 212, 0.15);
-    --sidebar-active-color: #0078d4;
-    --tooltip-bg: #1d1d1f;
-    --tooltip-color: #f5f5f7;
-    --content-bg: #f6f6f6;
-    --settings-icon-bg: #0078d4;
-    --window-border: rgba(0, 0, 0, 0.12);
-    --content-border: rgba(0, 0, 0, 0.25);
-  }
-}
-
 @media (prefers-color-scheme: dark) {
   :root {
-    --panel-bg: #2d2d2d;
-    --title-color: #f5f5f7;
-    --sidebar-color: #e0e0e0;
-    --sidebar-hover: rgba(255, 255, 255, 0.08);
-    --sidebar-active: rgba(59, 130, 246, 0.2);
-    --sidebar-active-color: #60a5fa;
-    --tooltip-bg: #e0e0e0;
-    --tooltip-color: #1d1d1f;
-    --content-bg: #1c1c1e;
-    --settings-icon-bg: #60a5fa;
-    --window-border: rgba(255, 255, 255, 0.12);
-    --content-border: rgba(255, 255, 255, 0.2);
+    --panel-bg: #2d2d2d; --title-color: #f5f5f7; --sidebar-color: #e0e0e0;
+    --sidebar-hover: rgba(255,255,255,0.08); --sidebar-active: #4a4a4a;
+    --sidebar-active-color: #f5f5f7; --tooltip-bg: #e0e0e0; --tooltip-color: #1d1d1f;
+    --content-bg: #1c1c1e; --settings-icon-bg: #60a5fa; --window-border: rgba(255,255,255,0.12);
+    --content-border: rgba(255,255,255,0.2); --dock-border: #555555;
   }
-  .win-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
-    box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
-  }
-  .win-btn.close:hover {
-    background: #e81123;
-    color: #fff;
-    box-shadow: 0 0 10px rgba(232, 17, 35, 0.5);
-  }
+  .wbtn:hover { background: rgba(255,255,255,0.1); box-shadow: 0 0 10px rgba(0,0,0,0.3); }
+  .wbtn.close:hover { background: #e81123; color: #fff; box-shadow: 0 0 10px rgba(232,17,35,0.5); }
 }
-
 html[data-theme="light"] {
-  --panel-bg: #ececec;
-  --title-color: #1d1d1f;
-  --sidebar-color: #1d1d1f;
-  --sidebar-hover: rgba(0, 0, 0, 0.08);
-  --sidebar-active: rgba(0, 120, 212, 0.15);
-  --sidebar-active-color: #0078d4;
-  --tooltip-bg: #1d1d1f;
-  --tooltip-color: #f5f5f7;
-  --content-bg: #f6f6f6;
-  --settings-icon-bg: #0078d4;
-  --window-border: rgba(0, 0, 0, 0.12);
-  --content-border: rgba(0, 0, 0, 0.25);
+  --panel-bg: #ececec; --title-color: #1d1d1f; --sidebar-color: #1d1d1f;
+  --sidebar-hover: rgba(0,0,0,0.08); --sidebar-active: #c7c7c7;
+  --sidebar-active-color: #1d1d1f; --tooltip-bg: #1d1d1f; --tooltip-color: #f5f5f7;
+  --content-bg: #f6f6f6; --settings-icon-bg: #0078d4; --window-border: rgba(0,0,0,0.12);
+  --content-border: rgba(0,0,0,0.25); --dock-border: #c7c7c7;
 }
-
 html[data-theme="dark"] {
-  --panel-bg: #2d2d2d;
-  --title-color: #f5f5f7;
-  --sidebar-color: #e0e0e0;
-  --sidebar-hover: rgba(255, 255, 255, 0.08);
-  --sidebar-active: rgba(59, 130, 246, 0.2);
-  --sidebar-active-color: #60a5fa;
-  --tooltip-bg: #e0e0e0;
-  --tooltip-color: #1d1d1f;
-  --content-bg: #1c1c1e;
-  --settings-icon-bg: #60a5fa;
-  --window-border: rgba(255, 255, 255, 0.12);
-  --content-border: rgba(255, 255, 255, 0.2);
+  --panel-bg: #2d2d2d; --title-color: #f5f5f7; --sidebar-color: #e0e0e0;
+  --sidebar-hover: rgba(255,255,255,0.08); --sidebar-active: #4a4a4a;
+  --sidebar-active-color: #f5f5f7; --tooltip-bg: #e0e0e0; --tooltip-color: #1d1d1f;
+  --content-bg: #1c1c1e; --settings-icon-bg: #60a5fa; --window-border: rgba(255,255,255,0.12);
+  --content-border: rgba(255,255,255,0.2); --dock-border: #555555;
 }
-
-html[data-theme="dark"] .win-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.3);
-}
-
-html[data-theme="dark"] .win-btn.close:hover {
-  background: #e81123;
-  color: #fff;
-  box-shadow: 0 0 10px rgba(232, 17, 35, 0.5);
-}
+html[data-theme="dark"] .wbtn:hover { background: rgba(255,255,255,0.1); box-shadow: 0 0 10px rgba(0,0,0,0.3); }
+html[data-theme="dark"] .wbtn.close:hover { background: #e81123; color: #fff; box-shadow: 0 0 10px rgba(232,17,35,0.5); }
 </style>

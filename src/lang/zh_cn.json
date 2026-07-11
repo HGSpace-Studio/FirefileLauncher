@@ -3,6 +3,7 @@
   "app.mainwindow.sidebar.library": "版本库",
   "app.mainwindow.sidebar.resourcescenter": "资源中心",
   "app.mainwindow.sidebar.add-instance": "新建实例",
+  "app.mainwindow.sidebar.account": "账户",
   "app.mainwindow.sidebar.settings": "设置",
   "app.mainwindow.sidebar.collapse": "收起",
   "app.mainwindow.sidebar.expand": "展开",

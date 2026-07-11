@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { ArrowLeft, Gamepad2, Play, Square, LoaderCircle, Bolt, LayoutGrid, Settings, Zap, Puzzle, Terminal, SlidersHorizontal, Save } from "@lucide/vue";
 import { invoke } from "@tauri-apps/api/core";
 import { addTask, updateTask, getTask, registerLaunchListeners } from "../../../stores/taskStore";
+import { currentInstanceName, currentLaunchFn, currentStopFn } from "../../../stores/instanceLaunch";
+import { addOpenedInstance } from "../../../stores/openedInstances";
 
 const props = defineProps<{
   instance: InstanceData;
@@ -111,6 +113,27 @@ async function stopGame() {
     // ignore
   }
 }
+
+function syncInstance() {
+  currentInstanceName.value = props.instance.name
+  currentLaunchFn.value = launchGame
+  currentStopFn.value = stopGame
+  addOpenedInstance({
+    name: props.instance.name,
+    version: props.instance.version,
+    version_type: props.instance.versionType,
+    loader: props.instance.loader?.type,
+  })
+}
+
+onMounted(syncInstance)
+watch(() => props.instance, syncInstance)
+
+onUnmounted(() => {
+  currentInstanceName.value = null
+  currentLaunchFn.value = null
+  currentStopFn.value = null
+})
 
 const settingsTab = ref<"general" | "quicklaunch" | "extensions" | "java" | "other">("general")
 const saveMsg = ref("")
@@ -455,39 +478,18 @@ async function saveSettings() {
       <div v-else-if="activeTab === 'resources'" class="tab-panel">
       </div>
     </div>
-    <div v-if="activeTab === 'launch'" class="detail-footer">
-      <button
-        v-if="launchState === 'launching'"
-        class="launch-btn launching"
-      >
-        <LoaderCircle :size="18" class="spin" />
+    <div v-if="activeTab === 'launch'" class="tab-footer">
+      <div v-if="launchState === 'launching' || launchState === 'running'" class="launch-status">
+        <LoaderCircle v-if="launchState === 'launching'" :size="16" class="spin" />
+        <Square v-else :size="16" />
         <span>{{ launchLabel }}</span>
-        <div class="launch-bar">
+        <div v-if="launchState === 'launching'" class="launch-bar">
           <div class="launch-bar-fill" :style="{ width: (launchProgress * 100) + '%' }"></div>
         </div>
-      </button>
-      <button
-        v-else-if="launchState === 'running'"
-        class="launch-btn running"
-        @click="stopGame"
-      >
-        <Square :size="18" />
+      </div>
+      <div v-else-if="launchState === 'exited' || launchState === 'error'" class="launch-status">
         <span>{{ launchLabel }}</span>
-      </button>
-      <button
-        v-else-if="launchState === 'exited' || launchState === 'error'"
-        class="launch-btn exited"
-      >
-        <span>{{ launchLabel }}</span>
-      </button>
-      <button
-        v-else
-        class="launch-btn ready"
-        @click="launchGame"
-      >
-        <Play :size="18" />
-        <span>{{ launchLabel }}</span>
-      </button>
+      </div>
     </div>
   </div>
 </template>
@@ -498,8 +500,13 @@ async function saveSettings() {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 24px 28px;
+  padding: 24px 0 80px;
   overflow-y: auto;
+}
+
+.detail-page > * {
+  padding-left: 28px;
+  padding-right: 28px;
 }
 
 .detail-header {
@@ -1001,70 +1008,35 @@ async function saveSettings() {
   min-height: 0;
 }
 
-.detail-footer {
+.tab-footer {
   display: flex;
   justify-content: flex-end;
   padding-top: 16px;
   flex-shrink: 0;
 }
 
-.launch-btn {
+.launch-status {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 24px;
-  border: none;
-  border-radius: 10px;
+  font-size: 13px;
+  color: var(--title-color);
+  opacity: 0.6;
+}
+
+.launch-bar {
+  width: 120px;
+  height: 4px;
+  border-radius: 2px;
   background: rgba(0, 120, 212, 0.15);
-  color: #0078d4;
-  font-size: 14px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background 0.3s ease, color 0.3s ease, opacity 0.3s ease;
-  font-family: inherit;
-  position: relative;
   overflow: hidden;
 }
 
-.launch-btn:hover {
-  background: rgba(0, 120, 212, 0.25);
-}
-
-.launch-btn.ready {
+.launch-bar-fill {
+  height: 100%;
+  border-radius: 2px;
   background: #0078d4;
-  color: #fff;
-}
-
-.launch-btn.ready:hover {
-  background: #1a8ae8;
-}
-
-.launch-btn.running {
-  background: #d43a3a;
-  color: #fff;
-}
-
-.launch-btn.running:hover {
-  background: #e05555;
-}
-
-.launch-btn.exited {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.launch-btn.launching {
-  background: rgba(0, 120, 212, 0.1);
-  color: #0078d4;
-  cursor: default;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 24px 10px;
-  min-width: 200px;
-}
-
-.launch-btn.launching .spin {
-  animation: spin 1s linear infinite;
+  transition: width 0.4s ease;
 }
 
 .launch-bar {
