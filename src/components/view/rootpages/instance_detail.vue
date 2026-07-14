@@ -65,15 +65,15 @@ async function launchGame() {
 
   try {
     const acc = await invoke<{ name: string; account_type: string; uuid: string }>("get_current_account");
-    const oobe = await invoke<{ account_name: string; java_path: string }>("get_oobe_settings");
+    const oobe = await invoke<{ accountName: string; javaPath: string }>("get_oobe_settings");
     const mcDir = await invoke<string>("get_minecraft_dir_string");
 
-    updateTask(taskId.value, { javaVersion: oobe.java_path || "未知" })
+    updateTask(taskId.value, { javaVersion: oobe.javaPath || "未知" })
 
     await invoke("launch_minecraft", {
       args: {
         version: props.instance.version,
-        username: acc.name || oobe.account_name || "Player",
+        username: acc.name || oobe.accountName || "Player",
         game_dir: mcDir,
         min_mem: instSettings.value.minMemory,
         max_mem: instSettings.value.maxMemory,
@@ -81,6 +81,7 @@ async function launchGame() {
         loader_build: props.instance.loader?.version || null,
         instance: props.instance.name,
         download_only: false,
+        fullscreen: instSettings.value.fullscreen,
         java_path: instSettings.value.javaVersion || null,
         download_concurrency: instSettings.value.downloadConcurrency,
         verify_concurrency: instSettings.value.verifyConcurrency,
@@ -152,6 +153,7 @@ interface SystemMem {
 interface InstanceSettings {
   icon: string | null
   skipLauncher: boolean
+  fullscreen: boolean
   autoConnectAddress: string | null
   javaVersion: string | null
   autoMemory: boolean
@@ -166,6 +168,7 @@ interface InstanceSettings {
 const instSettings = ref<InstanceSettings>({
   icon: null,
   skipLauncher: false,
+  fullscreen: false,
   autoConnectAddress: null,
   javaVersion: null,
   autoMemory: true,
@@ -352,6 +355,13 @@ async function saveSettings() {
                 <div class="set-row">
                   <label class="set-label">自动连接服务器</label>
                   <input v-model="instSettings.autoConnectAddress" placeholder="例如: example.com:25565" class="set-input" />
+                </div>
+                <div class="set-row">
+                  <label class="set-label">以全屏进入游戏</label>
+                  <label class="set-toggle">
+                    <input v-model="instSettings.fullscreen" type="checkbox" />
+                    <span class="set-toggle-slider"></span>
+                  </label>
                 </div>
               </div>
               <!-- 可选扩展 -->

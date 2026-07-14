@@ -79,6 +79,9 @@ pub fn run() {
             launcher::clear_crash_report,
             launcher::open_log_folder,
             launcher::export_crash_log,
+            launcher::read_image_file,
+            launcher::start_microsoft_auth,
+            launcher::poll_microsoft_auth,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

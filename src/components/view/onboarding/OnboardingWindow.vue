@@ -22,10 +22,10 @@ interface OobeSettings {
   locale: string;
   theme: string;
   font: string;
-  java_path: string;
-  account_type: string;
-  account_name: string;
-  oobe_completed: boolean;
+  javaPath: string;
+  accountType: string;
+  accountName: string;
+  oobeCompleted: boolean;
 }
 
 const appWindow = getCurrentWindow();
@@ -34,10 +34,10 @@ const settings = ref<OobeSettings>({
   locale: "system",
   theme: "system",
   font: "__system_default__",
-  java_path: "",
-  account_type: "offline",
-  account_name: "",
-  oobe_completed: false,
+  javaPath: "",
+  accountType: "offline",
+  accountName: "",
+  oobeCompleted: false,
 });
 const initialized = ref(false);
 const showExitDialog = ref(false);
@@ -88,7 +88,7 @@ const isLastTab = computed(() => activeTab.value === tabs.length - 1);
 const isFirstTab = computed(() => activeTab.value === 0);
 const accountMissing = computed(() => {
   if (activeTab.value !== 3) return false;
-  return !settings.value.account_name && settings.value.account_type !== "microsoft";
+  return !settings.value.accountName && settings.value.accountType !== "microsoft";
 });
 
 const javaManualPath = ref("");
@@ -134,7 +134,7 @@ async function detectJava() {
     javaList.value = list;
     if (list.length > 0) {
       javaManualPath.value = list[0].path;
-      settings.value.java_path = list[0].path;
+      settings.value.javaPath = list[0].path;
     }
   } catch (e) {
     console.error("Java detection failed:", e);
@@ -144,11 +144,11 @@ async function detectJava() {
 
 function selectJava(j: JavaInstall) {
   javaManualPath.value = j.path;
-  settings.value.java_path = j.path;
+  settings.value.javaPath = j.path;
 }
 
 function onAccountTypeChange(type: string) {
-  settings.value.account_type = type;
+  settings.value.accountType = type;
 }
 
 const showOfflineDialog = ref(false);
@@ -161,22 +161,22 @@ function onAvatarInput() {
 }
 
 function openOfflineDialog() {
-  offlineNameInput.value = settings.value.account_name || "";
+  offlineNameInput.value = settings.value.accountName || "";
   showOfflineDialog.value = true;
 }
 
 function confirmOfflineName() {
   const name = offlineNameInput.value.trim();
   if (name) {
-    settings.value.account_name = name;
+    settings.value.accountName = name;
     accountName.value = name;
   }
-  settings.value.account_type = "offline";
+  settings.value.accountType = "offline";
   showOfflineDialog.value = false;
 }
 
 async function completeSetup() {
-  settings.value.oobe_completed = true;
+  settings.value.oobeCompleted = true;
   await invoke("finish_oobe", { settings: settings.value });
 }
 
@@ -227,7 +227,7 @@ onMounted(async () => {
   detectJava();
 
   unlistenClose = await listen<string>("tauri://close-requested", () => {
-    if (!settings.value.oobe_completed) {
+    if (!settings.value.oobeCompleted) {
       requestExit();
     }
   });
@@ -341,7 +341,7 @@ onUnmounted(() => {
                   v-for="j in javaList"
                   :key="j.path"
                   class="java-item"
-                  :class="{ selected: settings.java_path === j.path }"
+                  :class="{ selected: settings.javaPath === j.path }"
                   @click="selectJava(j)"
                 >
                   <div class="java-item-version">{{ j.version }}</div>
@@ -357,7 +357,7 @@ onUnmounted(() => {
                   v-model="javaManualPath"
                   class="text-input"
                   placeholder="/usr/bin/java"
-                  @input="settings.java_path = javaManualPath"
+                  @input="settings.javaPath = javaManualPath"
                 />
               </div>
             </div>
@@ -372,7 +372,7 @@ onUnmounted(() => {
               <div class="account-cards">
                 <button
                   class="account-card"
-                  :class="{ selected: settings.account_type === 'microsoft' }"
+                  :class="{ selected: settings.accountType === 'microsoft' }"
                   @click="onAccountTypeChange('microsoft')"
                 >
                   <User :size="24" class="account-card-icon" />
@@ -390,7 +390,7 @@ onUnmounted(() => {
                 </button>
                 <button
                   class="account-card"
-                  :class="{ selected: settings.account_type === 'offline' }"
+                  :class="{ selected: settings.accountType === 'offline' }"
                   @click="openOfflineDialog"
                 >
                   <Globe :size="24" class="account-card-icon" />
@@ -400,10 +400,10 @@ onUnmounted(() => {
                   </div>
                 </button>
               </div>
-              <div v-if="settings.account_type === 'offline' && accountName" class="account-greeting">
+              <div v-if="settings.accountType === 'offline' && accountName" class="account-greeting">
                 您好，{{ accountName }}
               </div>
-              <div v-if="settings.account_type === 'microsoft'" class="input-group">
+              <div v-if="settings.accountType === 'microsoft'" class="input-group">
                 <span class="input-label">Microsoft 账户将在首次启动时登录</span>
               </div>
             </div>

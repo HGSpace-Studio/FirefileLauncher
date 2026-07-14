@@ -1,15 +1,19 @@
 <script setup lang="ts">
-import { User, Plus, X, Ellipsis, Trash2, Pencil, Palette } from "@lucide/vue";
+import { User, Plus, X, Ellipsis, Trash2, Pencil, Palette, LoaderCircle } from "@lucide/vue";
 import steveAvatar from "../assets/imgs/skins/avator/steve.png";
 import alexAvatar from "../assets/imgs/skins/avator/alex.png";
 
-import { ref, onMounted } from "vue";
+import { ref, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl as openExternalUrl } from "@tauri-apps/plugin-opener";
 
 interface AccountEntry {
   name: string;
   type: string;
   uuid: string;
+  ms_refresh_token?: string | null;
+  mc_token?: string | null;
+  xuid?: string | null;
 }
 
 const accounts = ref<AccountEntry[]>([]);
@@ -60,6 +64,10 @@ async function confirmOfflineAccount() {
     accounts.value = await invoke<AccountEntry[]>("add_account", {
       name,
       accountType: "offline",
+      uuid: null,
+      msRefreshToken: null,
+      mcToken: null,
+      xuid: null,
     });
     window.dispatchEvent(new CustomEvent("account-changed"));
     showDialog.value = false;
@@ -77,7 +85,106 @@ async function removeAccount(name: string) {
   }
 }
 
-onMounted(loadAccounts);
+// ── Microsoft Auth ──
+const MS_CLIENT_ID = "1cabeaef-70e5-4834-8aeb-85ff3671c46d"
+interface DeviceCodeResponse {
+  user_code: string
+  device_code: string
+  verification_uri: string
+  interval: number
+}
+interface MicrosoftAccount {
+  name: string
+  uuid: string
+  xuid: string
+  mc_token: string
+  ms_refresh_token: string
+}
+
+type PollResult =
+  | { status: "pending" }
+  | { status: "complete" } & MicrosoftAccount
+  | { status: "error"; reason: string }
+
+const msDeviceCode = ref<DeviceCodeResponse | null>(null)
+const msLoading = ref(false)
+const msPollTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+const msPollProgress = ref(0)
+const msError = ref("")
+
+async function startMsLogin() {
+  msError.value = ""
+  msLoading.value = true
+  msDeviceCode.value = null
+  try {
+    const code = await invoke<DeviceCodeResponse>("start_microsoft_auth", { clientId: MS_CLIENT_ID })
+    msDeviceCode.value = code
+    msPollProgress.value = 0
+    pollMsAuth(code)
+  } catch (e: any) {
+    msError.value = "启动 Microsoft 登录失败: " + (e?.toString() || "未知错误")
+  } finally {
+    msLoading.value = false
+  }
+}
+
+async function pollMsAuth(code: DeviceCodeResponse) {
+  try {
+    const result = await invoke<PollResult>("poll_microsoft_auth", {
+      clientId: MS_CLIENT_ID,
+      deviceCode: code.device_code,
+    })
+    if (result.status === "complete") {
+      const account = result as MicrosoftAccount & { status: "complete" }
+      await invoke<AccountEntry[]>("add_account", {
+        name: account.name,
+        accountType: "microsoft",
+        uuid: account.uuid,
+        msRefreshToken: account.ms_refresh_token,
+        mcToken: account.mc_token,
+        xuid: account.xuid,
+      })
+      window.dispatchEvent(new CustomEvent("account-changed"))
+      accounts.value = await invoke<AccountEntry[]>("get_accounts")
+      showDialog.value = false
+      msDeviceCode.value = null
+      return
+    } else if (result.status === "pending") {
+      // continue below to poll again
+    } else {
+      alert("Microsoft 登录出错: " + (result as any).reason)
+      return
+    }
+  } catch (e: any) {
+    console.error("poll invoke failed:", e)
+    return
+  }
+
+  // poll again after interval
+  const progress = Math.min(msPollProgress.value + 3, 95)
+  msPollProgress.value = progress
+  const delay = (code.interval || 5) * 1000
+  msPollTimer.value = setTimeout(() => pollMsAuth(code), delay)
+}
+
+function cancelMsLogin() {
+  if (msPollTimer.value) {
+    clearTimeout(msPollTimer.value)
+    msPollTimer.value = null
+  }
+  msDeviceCode.value = null
+  msPollProgress.value = 0
+}
+
+function openMsUrl(url: string) {
+  openExternalUrl(url)
+}
+
+onMounted(loadAccounts)
+
+onUnmounted(() => {
+  if (msPollTimer.value) clearTimeout(msPollTimer.value)
+})
 </script>
 
 <template>
@@ -133,7 +240,7 @@ onMounted(loadAccounts);
               v-for="(tab, i) in dialogTabs"
               :key="i"
               class="dialog-tab"
-              :class="{ active: dialogTab === i, disabled: i === 2 || i === 1 }"
+              :class="{ active: dialogTab === i, disabled: i === 2 }"
               @click="dialogTab = i"
             >{{ tab }}</button>
           </div>
@@ -159,9 +266,23 @@ onMounted(loadAccounts);
                 @click="confirmOfflineAccount"
               >确认</button>
             </div>
-            <div v-else-if="dialogTab === 1" class="dialog-placeholder">
-              <Ellipsis :size="32" class="placeholder-icon" />
-              <span>微软账户登录暂未开放</span>
+            <div v-else-if="dialogTab === 1" class="dialog-microsoft">
+              <div v-if="!msDeviceCode" class="ms-start">
+                <span class="ms-desc">使用 Microsoft 账户登录以获取您的 Minecraft Java 角色</span>
+                <button class="ms-login-btn" :disabled="msLoading" @click="startMsLogin">
+                  <LoaderCircle v-if="msLoading" :size="16" class="spin" />
+                  <span>{{ msLoading ? '请稍候...' : '登录微软账户' }}</span>
+                </button>
+                <span v-if="msError" class="ms-error">{{ msError }}</span>
+              </div>
+              <div v-else class="ms-code">
+                <span class="ms-desc">请在浏览器中打开以下链接并输入代码</span>
+                <a class="ms-url" :href="msDeviceCode.verification_uri" target="_blank" @click.prevent="openMsUrl(msDeviceCode.verification_uri)">{{ msDeviceCode.verification_uri }}</a>
+                <div class="ms-code-box">{{ msDeviceCode.user_code }}</div>
+                <span class="ms-hint">等待验证中...</span>
+                <div class="ms-tbar"><div class="ms-tfill" :style="{ width: msPollProgress + '%' }"></div></div>
+                <button class="ms-cancel-btn" @click="cancelMsLogin">取消</button>
+              </div>
             </div>
             <div v-else class="dialog-placeholder">
               <Ellipsis :size="32" class="placeholder-icon" />
@@ -525,5 +646,125 @@ onMounted(loadAccounts);
 
 .placeholder-icon {
   opacity: 0.5;
+}
+
+.dialog-microsoft {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 0;
+}
+
+.ms-start {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+
+.ms-desc {
+  font-size: 13px;
+  color: var(--title-color);
+  opacity: 0.7;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.ms-login-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background: #0078d4;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.ms-login-btn:hover:not(:disabled) { opacity: 0.85; }
+.ms-login-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.ms-error { font-size: 12px; color: #e74c3c; text-align: center; line-height: 1.4; }
+
+.ms-code {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.ms-url {
+  font-size: 14px;
+  font-weight: 600;
+  color: #0078d4;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ms-url:hover { text-decoration: underline; }
+
+.ms-code-box {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 6px;
+  padding: 12px 24px;
+  border-radius: 10px;
+  background: rgba(128,128,128,0.08);
+  color: var(--title-color);
+  font-family: monospace;
+}
+
+.ms-hint {
+  font-size: 12px;
+  color: var(--title-color);
+  opacity: 0.45;
+}
+
+.ms-tbar {
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(128,128,128,0.12);
+  overflow: hidden;
+}
+
+.ms-tfill {
+  height: 100%;
+  border-radius: 2px;
+  background: #0078d4;
+  transition: width 0.5s ease;
+}
+
+.ms-cancel-btn {
+  padding: 6px 16px;
+  border: 1px solid rgba(128,128,128,0.25);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--title-color);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.ms-cancel-btn:hover { opacity: 1; }
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.spin {
+  animation: spin 1s linear infinite;
 }
 </style>

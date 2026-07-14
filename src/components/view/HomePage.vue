@@ -104,12 +104,12 @@ async function launchQuick() {
   try {
     const inst = quickInstance.value;
     const acc = await invoke<{ name: string }>("get_current_account");
-    const oobe = await invoke<{ account_name: string; java_path: string }>("get_oobe_settings");
+    const oobe = await invoke<{ accountName: string; javaPath: string }>("get_oobe_settings");
     const mcDir = await invoke<string>("get_minecraft_dir_string");
     await invoke("launch_minecraft", {
       args: {
         version: inst.version,
-        username: acc.name || oobe.account_name || "Player",
+        username: acc.name || oobe.accountName || "Player",
         game_dir: mcDir,
         min_mem: "1024",
         max_mem: "2048",

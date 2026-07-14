@@ -7,10 +7,11 @@ import { openedInstances } from "./stores/openedInstances";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { Home, Store, LayoutGridIcon, Plus, Settings, Bolt, Square, ChevronRight, Play, LoaderCircle, Gamepad2 } from "@lucide/vue";
+import { Home, Store, LayoutGridIcon, Plus, Settings, Bolt, Square, ChevronRight, Play, LoaderCircle, Gamepad2, Ellipsis } from "@lucide/vue";
 import logo from "./assets/logos/logo.png";
 import steve from "./assets/imgs/skins/avator/steve.png";
 import alex from "./assets/imgs/skins/avator/alex.png";
+import default1Bg from "./assets/imgs/background/default1.png";
 
 import NewMciRoot from "./components/view/new_mci/root_interface.vue";
 import HomePage from "./components/view/HomePage.vue";
@@ -59,6 +60,17 @@ const navItems = [
 const taskTab = ref<"tasks" | "running">("tasks");
 const { tasks } = useTaskStore();
 const running = computed(() => tasks.value.filter(t => t.status === "running"));
+const filteredTasks = computed(() => tasks.value.filter(t => t.status !== "running" && t.status !== "exited"));
+const MAX_VISIBLE_INSTANCES = 3;
+const visibleInstances = computed(() => openedInstances.value.slice(0, MAX_VISIBLE_INSTANCES));
+const overflowInstances = computed(() => openedInstances.value.slice(MAX_VISIBLE_INSTANCES));
+const instMenuOpen = ref(false);
+const instMoreRef = ref<HTMLElement | null>(null);
+function closeInstMenu(e: MouseEvent) {
+  if (instMoreRef.value && !instMoreRef.value.contains(e.target as Node)) {
+    instMenuOpen.value = false;
+  }
+}
 const dockTask = computed(() => {
   if (!currentInstanceName.value) return null;
   return tasks.value.find(t => t.id === "launch:" + currentInstanceName.value) || null;
@@ -97,6 +109,14 @@ async function loadAccount() {
 }
 
 onMounted(async () => {
+  const savedUrl = localStorage.getItem("firefile-bg-url");
+  if (savedUrl) {
+    document.documentElement.style.setProperty("--bg-image", savedUrl);
+  } else {
+    document.documentElement.style.setProperty("--bg-image", `url("${default1Bg}")`);
+  }
+  const savedBlur = Number(localStorage.getItem("firefile-bg-blur")) || 5;
+  document.documentElement.style.setProperty("--bg-blur", savedBlur + "px");
   document.addEventListener("contextmenu", e => e.preventDefault());
   maxed.value = await app.isMaximized();
   listen("tauri://resize", async () => { maxed.value = await app.isMaximized(); });
@@ -106,6 +126,7 @@ onMounted(async () => {
   document.addEventListener("click", e => {
     if (!(e.target as HTMLElement).closest(".task-wrap")) taskOpen.value = false;
   });
+  document.addEventListener("click", closeInstMenu);
 });
 </script>
 
@@ -131,8 +152,8 @@ onMounted(async () => {
               <button class="tasktab" :class="{ on: taskTab === 'running' }" @click="taskTab = 'running'">运行中</button>
             </div>
             <div v-if="taskTab === 'tasks'">
-              <div v-if="!tasks.length" class="taskempty">暂无任务</div>
-              <div v-for="t in tasks" :key="t.id" class="titem">
+              <div v-if="!filteredTasks.length" class="taskempty">暂无任务</div>
+              <div v-for="t in filteredTasks" :key="t.id" class="titem">
                 <div class="tih">
                   <span class="titl">{{ t.title }}</span>
                   <span class="titype">{{ t.type === 'launch' ? '启动' : '安装' }}</span>
@@ -143,11 +164,13 @@ onMounted(async () => {
             </div>
             <div v-if="taskTab === 'running'">
               <div v-if="!running.length" class="taskempty">没有运行中的游戏</div>
-              <div v-for="t in running" :key="t.id" class="titem">
-                <div class="tih"><span class="titl">{{ t.title }}</span></div>
-                <div class="tiactions">
-                  <button class="tiaction stop" @click="invoke('stop_game')"><Square :size="14" /></button>
-                  <button class="tiaction" @click="goInst({ name: t.title, version: '', version_type: '' })"><ChevronRight :size="14" /></button>
+              <div v-for="t in running" :key="t.id" class="titem ritem">
+                <div class="tih">
+                  <span class="titl">{{ t.title }}</span>
+                  <div class="tiactions">
+                    <button class="tiaction stop" @click="invoke('stop_game')"><Square :size="14" /></button>
+                    <button class="tiaction" @click="goInst({ name: t.title, version: '', version_type: '' })"><ChevronRight :size="14" /></button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -195,7 +218,7 @@ onMounted(async () => {
         </button>
         <div class="dsep"></div>
         <button
-          v-for="inst in openedInstances"
+          v-for="inst in visibleInstances"
           :key="inst.name"
           class="ditem inst-icon"
           :class="{ on: nav === 'library' && currentInstanceName === inst.name }"
@@ -203,6 +226,29 @@ onMounted(async () => {
         >
           <Gamepad2 :size="18" />
         </button>
+        <button
+          v-if="overflowInstances.length > 0"
+          ref="instMoreRef"
+          class="ditem inst-more"
+          :class="{ on: instMenuOpen }"
+          @click.stop="instMenuOpen = !instMenuOpen"
+        >
+          <Ellipsis :size="18" />
+        </button>
+        <Teleport to="body">
+          <div v-if="instMenuOpen" class="inst-menu" @click.stop>
+            <button
+              v-for="inst in overflowInstances"
+              :key="inst.name"
+              class="inst-menu-item"
+              :class="{ on: currentInstanceName === inst.name }"
+              @click="goInst(inst); instMenuOpen = false"
+            >
+              <Gamepad2 :size="16" />
+              <span>{{ inst.name }}</span>
+            </button>
+          </div>
+        </Teleport>
         <button
           v-for="item in navItems.slice(3)"
           :key="item.id"
@@ -239,6 +285,7 @@ body {
 }
 .root {
   height: 100vh; display: flex; flex-direction: column; overflow: hidden; position: relative;
+  border-radius: 16px;
 }
 
 /* titlebar */
@@ -253,6 +300,7 @@ body {
 }
 .bar.mac .bar-left { padding-left: 0; }
 .barlogo { height: 20px; width: auto; }
+.bar.mac .barlogo { margin-left: 8px; }
 .bartitle { font-size: 13px; font-weight: 600; color: var(--title-color); opacity: 0.85; white-space: nowrap; }
 .bar.mac .bartitle { display: none; }
 .bar-center { flex: 1; }
@@ -261,11 +309,14 @@ body {
 /* background */
 .root::before {
   content: '';
-  position: fixed;
-  inset: -3px;
+  position: absolute;
+  inset: -20px;
   z-index: -1;
-  background: url('./assets/imgs/background/default1.png') center / cover no-repeat;
-  filter: blur(5px);
+  background-image: var(--bg-image, none);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  filter: blur(var(--bg-blur, 5px));
 }
 
 /* main */
@@ -315,6 +366,7 @@ body {
 .tibar { width: 100%; height: 3px; border-radius: 2px; background: rgba(128,128,128,0.12); overflow: hidden; }
 .tifill { height: 100%; border-radius: 2px; background: #0078d4; transition: width 0.3s ease; }
 .tiactions { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.ritem .tiactions { margin-top: 0; }
 .tiaction {
   display: flex; align-items: center; justify-content: center; width: 28px; height: 28px;
   border: none; border-radius: 6px; background: transparent; color: var(--title-color);
@@ -458,6 +510,53 @@ body {
   background: #0078d4;
   color: #fff;
   opacity: 1;
+}
+
+.inst-more.on {
+  background: var(--sidebar-active);
+  opacity: 1;
+}
+
+.inst-menu {
+  position: fixed;
+  bottom: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 200px;
+  max-height: 280px;
+  overflow-y: auto;
+  background: var(--panel-bg);
+  border: 1px solid rgba(128,128,128,0.15);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  padding: 6px;
+  z-index: 200;
+}
+
+.inst-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--title-color);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: left;
+}
+
+.inst-menu-item:hover {
+  background: var(--sidebar-hover);
+}
+
+.inst-menu-item.on {
+  background: #0078d4;
+  color: #fff;
 }
 
 

@@ -321,6 +321,7 @@ pub struct LaunchArgs {
     pub loader_build: Option<String>,
     pub instance: Option<String>,
     pub download_only: bool,
+    pub fullscreen: bool,
     pub download_concurrency: Option<u32>,
     pub verify_concurrency: Option<u32>,
 }
@@ -396,7 +397,10 @@ pub async fn launch_minecraft(app: AppHandle, args: LaunchArgs) -> Result<(), St
             ..Default::default()
         },
         loader,
-        screen: ScreenConfig::default(),
+        screen: ScreenConfig {
+            fullscreen: args.fullscreen,
+            ..Default::default()
+        },
         verify: false,
         game_args: vec![],
         jvm_args: vec![],
@@ -902,6 +906,12 @@ pub struct AccountEntry {
     pub name: String,
     pub r#type: String,
     pub uuid: String,
+    #[serde(default)]
+    pub ms_refresh_token: Option<String>,
+    #[serde(default)]
+    pub mc_token: Option<String>,
+    #[serde(default)]
+    pub xuid: Option<String>,
 }
 
 fn get_accounts_path() -> std::path::PathBuf {
@@ -940,6 +950,9 @@ pub fn get_accounts() -> Result<Vec<AccountEntry>, String> {
                             name: settings.account_name.clone(),
                             r#type: settings.account_type.clone(),
                             uuid,
+                            ms_refresh_token: None,
+                            mc_token: None,
+                            xuid: None,
                         });
                         write_accounts(&accounts).ok();
                     }
@@ -951,16 +964,24 @@ pub fn get_accounts() -> Result<Vec<AccountEntry>, String> {
 }
 
 #[tauri::command]
-pub fn add_account(name: String, account_type: String) -> Result<Vec<AccountEntry>, String> {
-    let uuid = if name.is_empty() {
-        String::new()
-    } else {
-        offline_uuid(&name)
-    };
+pub fn add_account(
+    name: String,
+    account_type: String,
+    uuid: Option<String>,
+    ms_refresh_token: Option<String>,
+    mc_token: Option<String>,
+    xuid: Option<String>,
+) -> Result<Vec<AccountEntry>, String> {
+    let account_uuid = uuid.unwrap_or_else(|| {
+        if name.is_empty() { String::new() } else { offline_uuid(&name) }
+    });
     let entry = AccountEntry {
         name,
         r#type: account_type,
-        uuid,
+        uuid: account_uuid,
+        ms_refresh_token,
+        mc_token,
+        xuid,
     };
     let mut accounts = read_accounts();
     accounts.push(entry);
@@ -981,6 +1002,7 @@ pub fn remove_account(name: String) -> Result<Vec<AccountEntry>, String> {
 pub struct InstanceSettings {
     pub icon: Option<String>,
     pub skip_launcher: bool,
+    pub fullscreen: bool,
     pub auto_connect_address: Option<String>,
     pub java_version: Option<String>,
     pub auto_memory: bool,
@@ -997,6 +1019,7 @@ impl Default for InstanceSettings {
         Self {
             icon: None,
             skip_launcher: false,
+            fullscreen: false,
             auto_connect_address: None,
             java_version: None,
             auto_memory: true,
@@ -1129,6 +1152,11 @@ pub async fn clear_crash_report(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn read_image_file(path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&path).map_err(|e| format!("无法读取文件: {e}"))
+}
+
+#[tauri::command]
 pub async fn open_log_folder(app: AppHandle) -> Result<(), String> {
     let mc_dir = get_minecraft_dir();
     let logs_dir = mc_dir.join("logs");
@@ -1157,4 +1185,234 @@ pub async fn export_crash_log(app: AppHandle, content: String) -> Result<(), Str
             .map_err(|e| format!("无法保存日志文件: {e}"))?;
     }
     Ok(())
+}
+
+// ── Microsoft Authentication ──
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DeviceCodeResponse {
+    pub user_code: String,
+    pub device_code: String,
+    pub verification_uri: String,
+    pub interval: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MicrosoftAccount {
+    pub name: String,
+    pub uuid: String,
+    pub xuid: String,
+    pub mc_token: String,
+    pub ms_refresh_token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(tag = "status")]
+pub enum PollResult {
+    #[serde(rename = "pending")]
+    Pending,
+    #[serde(rename = "complete")]
+    Complete(MicrosoftAccount),
+    #[serde(rename = "error")]
+    Error { reason: String },
+}
+
+#[tauri::command]
+pub async fn start_microsoft_auth(client_id: String) -> Result<DeviceCodeResponse, String> {
+    let client = reqwest::Client::new();
+    let params = [
+        ("client_id", client_id.as_str()),
+        ("scope", "XboxLive.signin offline_access"),
+    ];
+    let resp = client
+        .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode")
+        .form(&params)
+        .send()
+        .await
+        .map_err(|e| format!("请求设备代码失败: {e}"))?;
+
+    let json: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("解析设备代码响应失败: {e}"))?;
+
+    eprintln!("[start_microsoft_auth] response: {}", serde_json::to_string(&json).unwrap_or_default());
+
+    if let Some(err) = json["error"].as_str() {
+        let desc = json["error_description"].as_str().unwrap_or("未知错误");
+        return Err(format!("Microsoft 设备代码请求失败: {err} - {desc}"));
+    }
+
+    Ok(DeviceCodeResponse {
+        user_code: json["user_code"].as_str().unwrap_or("").to_string(),
+        device_code: json["device_code"].as_str().unwrap_or("").to_string(),
+        verification_uri: json["verification_uri"]
+            .as_str()
+            .unwrap_or("https://microsoft.com/devicelogin")
+            .to_string(),
+        interval: json["interval"].as_u64().unwrap_or(5),
+    })
+}
+
+async fn complete_minecraft_auth(
+    client: &reqwest::Client,
+    ms_access_token: &str,
+    ms_refresh_token: &str,
+) -> Result<MicrosoftAccount, String> {
+    // Step 1: Xbox Live token
+    let xbox_resp: serde_json::Value = client
+        .post("https://user.auth.xboxlive.com/user/authenticate")
+        .header("x-xbl-contract-version", "1")
+        .json(&serde_json::json!({
+            "Properties": {
+                "AuthMethod": "RPS",
+                "SiteName": "user.auth.xboxlive.com",
+                "RpsTicket": format!("d={}", ms_access_token)
+            },
+            "RelyingParty": "http://auth.xboxlive.com",
+            "TokenType": "JWT"
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Xbox Live 认证失败: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("解析 Xbox Live 响应失败: {e}"))?;
+
+    let xbox_token = xbox_resp["Token"].as_str().unwrap_or("").to_string();
+    let uhs = xbox_resp["DisplayClaims"]["xui"][0]["uhs"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    // Step 2: XSTS
+    let xsts_resp: serde_json::Value = client
+        .post("https://xsts.auth.xboxlive.com/xsts/authorize")
+        .header("x-xbl-contract-version", "1")
+        .json(&serde_json::json!({
+            "Properties": {
+                "SandboxId": "RETAIL",
+                "UserTokens": [xbox_token]
+            },
+            "RelyingParty": "rp://api.minecraftservices.com/",
+            "TokenType": "JWT"
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("XSTS 认证失败: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("解析 XSTS 响应失败: {e}"))?;
+
+    let xsts_token = xsts_resp["Token"].as_str().unwrap_or("").to_string();
+    let xuid = xsts_resp["DisplayClaims"]["xui"][0]["xid"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let identity_token = format!("XBL3.0 x={};{}", uhs, xsts_token);
+
+    // Step 3: Minecraft access token
+    let mc_resp: serde_json::Value = client
+        .post("https://api.minecraftservices.com/authentication/login_with_xbox")
+        .json(&serde_json::json!({
+            "identityToken": identity_token
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Minecraft 认证失败: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("解析 Minecraft 响应失败: {e}"))?;
+
+    let mc_token = mc_resp["access_token"].as_str().unwrap_or("").to_string();
+
+    // Step 4: Profile
+    let profile_resp: serde_json::Value = client
+        .get("https://api.minecraftservices.com/minecraft/profile")
+        .header("Authorization", format!("Bearer {}", mc_token))
+        .send()
+        .await
+        .map_err(|e| format!("获取角色信息失败: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("解析角色信息失败: {e}"))?;
+
+    let name = profile_resp["name"].as_str().unwrap_or("").to_string();
+    let uuid_raw = profile_resp["id"].as_str().unwrap_or("").to_string();
+    let uuid = if uuid_raw.len() == 32 {
+        format!(
+            "{}-{}-{}-{}-{}",
+            &uuid_raw[0..8],
+            &uuid_raw[8..12],
+            &uuid_raw[12..16],
+            &uuid_raw[16..20],
+            &uuid_raw[20..32]
+        )
+    } else {
+        uuid_raw
+    };
+
+    if name.is_empty() {
+        return Err(
+            "未获取到 Minecraft 角色信息，请确认该账号已购买 Minecraft Java 版".into(),
+        );
+    }
+
+    Ok(MicrosoftAccount {
+        name,
+        uuid,
+        xuid,
+        mc_token,
+        ms_refresh_token: ms_refresh_token.to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn poll_microsoft_auth(
+    client_id: String,
+    device_code: String,
+) -> PollResult {
+    let client = reqwest::Client::new();
+    let params = [
+        ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+        ("client_id", client_id.as_str()),
+        ("device_code", device_code.as_str()),
+    ];
+    let resp = match client
+        .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
+        .form(&params)
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => return PollResult::Error { reason: format!("网络请求失败: {e}") },
+    };
+
+    let body = match resp.text().await {
+        Ok(b) => b,
+        Err(e) => return PollResult::Error { reason: format!("读取响应失败: {e}") },
+    };
+    eprintln!("[poll_microsoft_auth] body: {}", body);
+
+    let json: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(e) => return PollResult::Error { reason: format!("解析响应失败: {e}") },
+    };
+
+    if let Some(access_token) = json["access_token"].as_str() {
+        let refresh_token = json["refresh_token"].as_str().unwrap_or("");
+        match complete_minecraft_auth(&client, access_token, refresh_token).await {
+            Ok(account) => PollResult::Complete(account),
+            Err(e) => PollResult::Error { reason: e },
+        }
+    } else {
+        let error = json["error"].as_str().unwrap_or("unknown");
+        match error {
+            "authorization_pending" | "slow_down" => PollResult::Pending,
+            "expired_token" | "authorization_declined" => {
+                PollResult::Error { reason: "验证已过期或已拒绝".into() }
+            }
+            _ => PollResult::Error { reason: format!("验证失败: {error}") },
+        }
+    }
 }

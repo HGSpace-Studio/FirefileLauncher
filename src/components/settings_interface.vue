@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, computed } from "vue";
+import { ref, watch, onMounted, onUnmounted, computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { getSystemLocale } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
-import { Settings, Languages, Palette, Info, GitPullRequestArrow, X, Coffee, LoaderCircle, ChevronDown } from "@lucide/vue";
+import { Settings, Languages, Palette, Info, GitPullRequestArrow, X, Coffee, LoaderCircle, ChevronDown, Upload } from "@lucide/vue";
+import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import logo from "../assets/logos/logo.png";
 
@@ -11,12 +12,98 @@ const emit = defineEmits<{
   (e: "close"): void;
 }>();
 
+import default1Bg from "../assets/imgs/background/default1.png";
+
 const { t, locale } = useI18n();
 
 const currentLang = ref("system");
 const currentTheme = ref(
   document.documentElement.getAttribute("data-theme") || "system"
 );
+
+// --- Background Gallery ---
+const bgMap: Record<string, string> = {
+  default1: default1Bg,
+}
+
+interface CustomBgEntry {
+  path: string
+  name: string
+}
+
+function loadCustomBgs(): CustomBgEntry[] {
+  try { return JSON.parse(localStorage.getItem('firefile-custom-bgs') || '[]') }
+  catch { return [] }
+}
+const customBgs = ref<CustomBgEntry[]>(loadCustomBgs())
+
+const customBgPreviews = reactive<Record<string, string>>({})
+
+async function loadCustomBgPreview(path: string) {
+  if (customBgPreviews[path]) return
+  try {
+    const bytes = await invoke<number[]>('read_image_file', { path })
+    const uint8 = new Uint8Array(bytes)
+    const blb = new Blob([uint8])
+    customBgPreviews[path] = URL.createObjectURL(blb)
+  } catch {}
+}
+
+async function loadAllCustomBgPreviews() {
+  for (const cbg of customBgs.value) {
+    await loadCustomBgPreview(cbg.path)
+  }
+}
+
+onMounted(loadAllCustomBgPreviews)
+
+onUnmounted(() => {
+  for (const url of Object.values(customBgPreviews)) {
+    URL.revokeObjectURL(url)
+  }
+})
+
+async function uploadBg() {
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }],
+  })
+  if (!selected) return
+  const path = typeof selected === 'string' ? selected : selected
+  const name = path.split(/[/\\]/).pop() || '背景'
+  if (customBgs.value.some(e => e.path === path)) return
+  customBgs.value.push({ path, name })
+  localStorage.setItem('firefile-custom-bgs', JSON.stringify(customBgs.value))
+  await loadCustomBgPreview(path)
+}
+
+// --- Background apply ---
+const currentBg = ref(localStorage.getItem("firefile-bg") || "default1")
+const bgBlur = ref(Number(localStorage.getItem("firefile-bg-blur")) || 5)
+
+async function applyBg(val: string) {
+  localStorage.setItem("firefile-bg", val)
+  let url: string
+  if (val === "none") {
+    url = "none"
+  } else if (val.startsWith("custom:")) {
+    const path = val.slice(7)
+    if (!customBgPreviews[path]) await loadCustomBgPreview(path)
+    url = `url("${customBgPreviews[path]}")`
+  } else {
+    url = `url("${bgMap[val]}")`
+  }
+  if (currentBg.value !== val) return
+  localStorage.setItem("firefile-bg-url", url)
+  document.documentElement.style.setProperty("--bg-image", url)
+}
+
+watch(currentBg, (val) => { applyBg(val) }, { immediate: true })
+
+watch(bgBlur, (val) => {
+  localStorage.setItem("firefile-bg-blur", String(val))
+  document.documentElement.style.setProperty("--bg-blur", val + "px")
+}, { immediate: true })
 
 watch(currentLang, (val) => {
   locale.value = val === "system" ? getSystemLocale() : val;
@@ -309,6 +396,40 @@ onUnmounted(() => {
                 <button v-if="fontChanged" class="reset-btn" @click="resetFont">{{ t("app.mainwindow.settings.appearance.font.reset") }}</button>
               </div>
             </div>
+            <div class="setting-card bg-card-col">
+              <div class="setting-card-info">
+                <label class="setting-label">背景</label>
+                <span class="setting-desc">选择窗口背景图像</span>
+              </div>
+              <div class="bg-gallery">
+                <div class="bg-card" :class="{ active: currentBg === 'none' }" @click="currentBg = 'none'">
+                  <div class="bg-preview none-preview"><span>无</span></div>
+                  <span class="bg-name">无</span>
+                </div>
+                <div class="bg-card" :class="{ active: currentBg === 'default1' }" @click="currentBg = 'default1'">
+                  <div class="bg-preview"><img :src="default1Bg" alt="Default 1" /></div>
+                  <span class="bg-name">Default 1</span>
+                </div>
+                <div v-for="cbg in customBgs" :key="cbg.path" class="bg-card" :class="{ active: currentBg === 'custom:' + cbg.path }" @click="currentBg = 'custom:' + cbg.path">
+                  <div class="bg-preview"><img :src="customBgPreviews[cbg.path]" :alt="cbg.name" /></div>
+                  <span class="bg-name">{{ cbg.name }}</span>
+                </div>
+                <div class="bg-card upload-card" @click="uploadBg">
+                  <div class="bg-preview"><Upload :size="24" /></div>
+                  <span class="bg-name">上传</span>
+                </div>
+              </div>
+            </div>
+            <div class="setting-card">
+              <div class="setting-card-info">
+                <label class="setting-label">背景模糊</label>
+                <span class="setting-desc">调整高斯模糊程度（0–20px）</span>
+              </div>
+              <div class="blur-control">
+                <input type="range" v-model.number="bgBlur" min="0" max="20" step="1" class="blur-slider" />
+                <span class="blur-value">{{ bgBlur }}px</span>
+              </div>
+            </div>
           </div>
           <div v-if="activeSetting === 'language'" class="setting-panel">
             <div class="setting-card">
@@ -345,7 +466,7 @@ onUnmounted(() => {
                   
                 </div>
               </div>
-              <button class="about-link-btn" @click="openUrl('https://github.com/HGSpace-Studio/FirefileLauncher')">
+              <button class="about-link-btn" @click="openUrl('https://github.com/HGSpace-Studio/Firefly-Launcher')">
                 <GitPullRequestArrow :size="16" />
                 <span>GitHub</span>
               </button>
@@ -532,6 +653,12 @@ onUnmounted(() => {
   border-radius: 10px;
 }
 
+.setting-card.bg-card-col {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
 .setting-card-info {
   display: flex;
   flex-direction: column;
@@ -687,6 +814,115 @@ onUnmounted(() => {
   opacity: 0.5;
   padding: 0 4px;
   margin: 0;
+}
+
+.bg-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.bg-card {
+  border-radius: 10px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color 0.15s;
+  overflow: hidden;
+}
+
+.bg-card:hover {
+  border-color: rgba(128,128,128,0.3);
+}
+
+.bg-card.active {
+  border-color: #0078d4;
+}
+
+.bg-preview {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: rgba(128,128,128,0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px 6px 0 0;
+}
+
+.bg-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bg-preview.none-preview {
+  font-size: 14px;
+  color: var(--title-color);
+  opacity: 0.35;
+}
+
+.bg-name {
+  display: block;
+  padding: 6px 8px;
+  font-size: 12px;
+  text-align: center;
+  color: var(--title-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-card .bg-preview {
+  color: var(--title-color);
+  opacity: 0.35;
+  font-size: 24px;
+}
+
+.upload-card:hover .bg-preview {
+  opacity: 0.7;
+}
+
+.blur-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 180px;
+}
+
+.blur-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(128,128,128,0.2);
+  outline: none;
+  cursor: pointer;
+}
+
+.blur-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--sidebar-active-color);
+  border: 2px solid var(--panel-bg);
+  cursor: pointer;
+  transition: transform 0.15s;
+}
+
+.blur-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+.blur-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--title-color);
+  min-width: 36px;
+  text-align: right;
 }
 
 .refresh-btn {
