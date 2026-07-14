@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 关于页面 -->
+    <string name="mcl_tab_about_launcher">关于启动器</string>
+    <string name="about_title">关于 Firefly Android Launcher</string>
+    <string name="about_description">Firefly Android Launcher 是由 HGSpace Studio 开发的 Minecraft Java Edition 安卓启动器，基于 PojavLauncher 和 Pojav Glow·Worm 开发。</string>
+    <string name="about_changes">Firefly Android Launcher 针对 UI 交互和渲染器选择方案进行了优化，支持 CurseForge 和 Modrinth 整合包导入。</string>
+    <string name="about_license">Firefly Android Launcher 使用 GPLv3 开源协议。</string>
+    <string name="fragment_about_component_title">第三方组件及其许可证</string>
+    <string name="fragment_about_component">
+    Boardwalk (JVM 启动器): 未知许可/Apache 许可证 2.0 或 GNU GPLv2\n
+    Android Support Libraries: Apache 许可证 2.0\n
+    GL4ES: MIT 许可证\n
+    OpenJDK: GNU GPLv2 许可证\n
+    LWJGL3: BSD-3 许可证\n
+    LWJGLX (LWJGL2 API 兼容层用于 LWJGL3): 未知许可\n
+    Mesa 3D 图形库: MIT 许可证\n
+    pro-grade (Java 沙盒安全管理器): Apache 许可证 2.0\n
+    bhook (用于退出代码捕获): MIT 许可证\n
+    libepoxy: MIT 许可证\n
+    virglrenderer: MIT 许可证\n
+    terminal-view: Apache 2.0\n
+    terminal-emulator: Apache 2.0\n
+    感谢 MCHeads 提供的 Minecraft 头像
+    </string>
+    <string name="fragment_about_contributor_title">项目贡献者(不分贡献率与顺序)</string>
+</resources>
