@@ -125,15 +125,25 @@ public class AsyncAssetManager {
                 unpackComponent(ctx, "patcher", false);
                 // Since the Java module system doesn't allow multiple JARs to declare the same module,
                 // we repack them to a single file here
-                unpackComponent(ctx, "lwjgl3", false);
+                unpackComponent(ctx, "lwjgl3/3.3.3", false);
+                unpackComponent(ctx, "lwjgl3/3.4.1", false);
                 unpackComponent(ctx, "security", true);
                 unpackComponent(ctx, "arc_dns_injector", true);
+                unpackComponent(ctx, "methods_injector_agent", true);
                 unpackComponent(ctx, "forge_installer", true);
             } catch (IOException e) {
                 Log.e("AsyncAssetManager", "Failed o unpack components !", e);
             }
             ProgressLayout.clearProgress(ProgressLayout.EXTRACT_COMPONENTS);
         });
+    }
+
+    /**
+     * Synchronously unpack a single component if not already unpacked.
+     * Use this when a component is needed immediately (e.g. before JVM launch).
+     */
+    public static void unpackComponentSync(Context ctx, String component, boolean privateDirectory) throws IOException {
+        unpackComponent(ctx, component, privateDirectory);
     }
 
     private static void unpackComponent(Context ctx, String component, boolean privateDirectory) throws IOException {
@@ -146,7 +156,7 @@ public class AsyncAssetManager {
             if (versionFile.getParentFile().exists() && versionFile.getParentFile().isDirectory()) {
                 FileUtils.deleteDirectory(versionFile.getParentFile());
             }
-            versionFile.getParentFile().mkdir();
+            versionFile.getParentFile().mkdirs();
 
             Log.i("UnpackPrep", component + ": Pack was installed manually, or does not exist, unpacking new...");
             String[] fileList = am.list("components/" + component);
@@ -155,13 +165,13 @@ public class AsyncAssetManager {
             }
         } else {
             FileInputStream fis = new FileInputStream(versionFile);
-            String release1 = Tools.read(is);
-            String release2 = Tools.read(fis);
+            String release1 = Tools.read(is).trim();
+            String release2 = Tools.read(fis).trim();
             if (!release1.equals(release2)) {
                 if (versionFile.getParentFile().exists() && versionFile.getParentFile().isDirectory()) {
                     FileUtils.deleteDirectory(versionFile.getParentFile());
                 }
-                versionFile.getParentFile().mkdir();
+                versionFile.getParentFile().mkdirs();
 
                 String[] fileList = am.list("components/" + component);
                 for (String fileName : fileList) {

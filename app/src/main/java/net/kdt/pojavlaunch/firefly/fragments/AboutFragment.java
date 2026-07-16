@@ -25,9 +25,11 @@ public class AboutFragment extends Fragment {
         Button mContributorButton1 = view.findViewById(R.id.contributor_pojavteam);
         Button mContributorButton2 = view.findViewById(R.id.contributor_happygray);
         Button mContributorButton3 = view.findViewById(R.id.contributor_hellochl);
+        Button mContributorButton4 = view.findViewById(R.id.contributor_cpucheck);
 
         mContributorButton1.setOnClickListener(v -> Tools.openURL(requireActivity(), GITHUB_URL_PLT));
         mContributorButton2.setOnClickListener(v -> Tools.openURL(requireActivity(), GITHUB_URL_HGSPACE));
         mContributorButton3.setOnClickListener(v -> Tools.openURL(requireActivity(), GITHUB_URL_HGSPACE));
+        mContributorButton4.setOnClickListener(v -> Tools.openURL(requireActivity(), GITHUB_URL_HGSPACE));
     }
 }

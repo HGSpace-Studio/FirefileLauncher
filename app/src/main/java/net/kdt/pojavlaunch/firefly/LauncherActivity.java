@@ -49,6 +49,7 @@ import net.kdt.pojavlaunch.firefly.prefs.screens.LauncherPreferenceFragment;
 import net.kdt.pojavlaunch.firefly.progresskeeper.ProgressKeeper;
 import net.kdt.pojavlaunch.firefly.progresskeeper.TaskCountListener;
 import net.kdt.pojavlaunch.firefly.services.ProgressServiceKeeper;
+import net.kdt.pojavlaunch.firefly.tasks.AsyncAssetManager;
 import net.kdt.pojavlaunch.firefly.tasks.AsyncMinecraftDownloader;
 import net.kdt.pojavlaunch.firefly.tasks.AsyncVersionList;
 import net.kdt.pojavlaunch.firefly.tasks.MinecraftDownloader;
@@ -226,6 +227,7 @@ public class LauncherActivity extends BaseActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        AsyncAssetManager.unpackComponents(this);
         setContentView(R.layout.activity_pojav_launcher);
         FragmentManager fragmentManager = getSupportFragmentManager();
         Toast(this, R.string.app_start_toast);
@@ -279,34 +281,6 @@ public class LauncherActivity extends BaseActivity {
         // 初始化并调用 UpdateLauncher 进行更新检查
         UpdateLauncher updateLauncher = new UpdateLauncher(this);
         updateLauncher.checkForUpdates(true);
-
-        // Auto-import builtin modpack on first launch
-        importBuiltinModpack();
-    }
-
-    private void importBuiltinModpack() {
-        if (LauncherPreferences.DEFAULT_PREF.getBoolean("builtin_modpack_imported", false)) return;
-        PojavApplication.sExecutorService.execute(() -> {
-            try {
-                File cacheFile = new File(Tools.DIR_CACHE, "builtin_modpack.zip");
-                try (InputStream is = getAssets().open("builtin_modpack.zip");
-                     FileOutputStream fos = new FileOutputStream(cacheFile)) {
-                    byte[] buf = new byte[8192];
-                    int len;
-                    while ((len = is.read(buf)) > 0) fos.write(buf, 0, len);
-                }
-                android.net.Uri uri = androidx.core.content.FileProvider.getUriForFile(
-                        this, getPackageName() + ".provider", cacheFile);
-                ModLoader loaderInfo = new CommonApi(getString(R.string.curseforge_api_key)).importModpack(this, uri);
-                if (loaderInfo != null) {
-                    loaderInfo.getDownloadTask(new NotificationDownloadListener(this, loaderInfo)).run();
-                }
-                cacheFile.delete();
-                LauncherPreferences.DEFAULT_PREF.edit().putBoolean("builtin_modpack_imported", true).apply();
-            } catch (Exception e) {
-                Log.e("BuiltinModpack", "Failed to import builtin modpack", e);
-            }
-        });
     }
 
     @Override

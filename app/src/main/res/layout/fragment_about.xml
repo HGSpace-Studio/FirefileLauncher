@@ -88,6 +88,14 @@
                 android:drawableStart="@drawable/image_about_hellochl"
                 android:text="hello_chl (电脑端)" />
 
+            <com.firefly.ui.button.LauncherMenuButton
+                android:id="@+id/contributor_cpucheck"
+                android:layout_width="match_parent"
+                android:layout_height="@dimen/_66sdp"
+                android:background="?android:attr/selectableItemBackground"
+                android:drawableStart="@drawable/image_about_cpucheck"
+                android:text="cpucheck" />
+
         </LinearLayout>
     </ScrollView>
 

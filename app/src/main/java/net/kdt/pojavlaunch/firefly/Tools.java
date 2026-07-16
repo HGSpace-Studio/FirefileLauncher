@@ -110,6 +110,7 @@ public final class Tools {
     public static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
     public static String APP_NAME = "Pojav Glow·Worm";
     public static String PGW_VERSION_CODE = null;
+    public static int iLwjglVersion = 0;
 
     public static final Gson GLOBAL_GSON = new GsonBuilder().setPrettyPrinting().create();
 
@@ -285,7 +286,17 @@ public final class Tools {
         javaArgList.addAll(Arrays.asList(getMinecraftJVMArgs(versionId, gamedir)));
         javaArgList.add("-cp");
         String lwjgl3ClassPath = getLWJGL3ClassPath();
-        javaArgList.add(launchClassPath + (lwjgl3ClassPath.isEmpty() ? "" : ":" + lwjgl3ClassPath));
+        String classPath = launchClassPath + (lwjgl3ClassPath.isEmpty() ? "" : ":" + lwjgl3ClassPath);
+
+        // Add lwjgl-lwjglx.jar (LWJGL2 compatibility layer) for old Minecraft versions
+        if (iLwjglVersion <= 299) {
+            String internalLwjglVersion = iLwjglVersion >= 341 ? "3.4.1" : "3.3.3";
+            File lwjglxFile = new File(Tools.DIR_GAME_HOME, "lwjgl3/" + internalLwjglVersion + "/lwjgl-lwjglx.jar");
+            if (lwjglxFile.exists()) {
+                classPath = classPath + ":" + lwjglxFile.getAbsolutePath();
+            }
+        }
+        javaArgList.add(classPath);
 
         // Forge 1.6.4 crash mitigation
         // It fails certification and crashes because it thinks Minecraft is corrupted.
@@ -630,18 +641,37 @@ public final class Tools {
     }
 
     private static String getLWJGL3ClassPath() {
+        String internalLwjglVersion = iLwjglVersion >= 341 ? "3.4.1" : "3.3.3";
+        File lwjgl3Folder = new File(Tools.DIR_GAME_HOME, "lwjgl3/" + internalLwjglVersion);
         StringBuilder libStr = new StringBuilder();
-        File lwjgl3Folder = new File(Tools.DIR_GAME_HOME, "lwjgl3");
-        File[] lwjgl3Files = lwjgl3Folder.listFiles();
-        if (lwjgl3Files != null) {
-            for (File file : lwjgl3Files) {
-                if (file.getName().endsWith(".jar")) {
-                    libStr.append(file.getAbsolutePath()).append(":");
-                }
+
+        // 1. lwjgl.jar (core) - first in classpath
+        File lwjglCore = new File(lwjgl3Folder, "lwjgl.jar");
+        if (lwjglCore.exists()) {
+            libStr.append(lwjglCore.getAbsolutePath()).append(":");
+        }
+
+        // 2. lwjgl-merged-modules.jar - second in priority
+        File lwjglMerged = new File(lwjgl3Folder, "lwjgl-" + internalLwjglVersion + "-merged-modules.jar");
+        if (lwjglMerged.exists()) {
+            libStr.append(lwjglMerged.getAbsolutePath()).append(":");
+        }
+
+        // 3. All other LWJGL modules (excluding lwjgl.jar and lwjglx.jar)
+        File[] lwjglModules = lwjgl3Folder.listFiles(pathname ->
+                pathname.getName().endsWith(".jar") &&
+                        !pathname.getName().equals("lwjgl.jar") &&
+                        !pathname.getName().endsWith("lwjglx.jar") &&
+                        !pathname.getName().startsWith("lwjgl-" + internalLwjglVersion + "-merged-modules"));
+        if (lwjglModules != null) {
+            // Sort for consistent classpath order
+            Arrays.sort(lwjglModules, (a, b) -> a.getName().compareTo(b.getName()));
+            for (File file : lwjglModules) {
+                libStr.append(file.getAbsolutePath()).append(":");
             }
         }
+
         if (libStr.length() == 0) return "";
-        // Remove the ':' at the end
         libStr.setLength(libStr.length() - 1);
         return libStr.toString();
     }
@@ -974,9 +1004,35 @@ public final class Tools {
 
     public static String[] generateLibClasspath(JMinecraftVersionList.Version info) {
         List<String> libDir = new ArrayList<>();
+        iLwjglVersion = 0;
         for (DependentLibrary libItem : info.libraries) {
+            // Detect LWJGL version from library manifest
+            int offset = 0;
+            if (libItem.name.startsWith("org.lwjgl.lwjgl:lwjgl:")) {
+                offset = "org.lwjgl.lwjgl:lwjgl:".length();
+            } else if (libItem.name.startsWith("org.lwjgl:lwjgl:")) {
+                offset = "org.lwjgl:lwjgl:".length();
+            }
+            if (offset != 0 && (iLwjglVersion < 200 || iLwjglVersion > 999)) {
+                while (offset < libItem.name.length()) {
+                    char c = libItem.name.charAt(offset);
+                    if (c >= '0' && c <= '9') {
+                        iLwjglVersion = iLwjglVersion * 10 + (c - '0');
+                    } else if (c == '.') {
+                        // skip dots
+                    } else {
+                        break;
+                    }
+                    offset++;
+                }
+            }
+
             if (!checkRules(libItem.rules)) continue;
             libDir.add(ProfilePathHome.getLibrariesHome() + "/" + artifactToPath(libItem));
+        }
+        if (iLwjglVersion < 200 || iLwjglVersion > 999) {
+            Log.w(APP_NAME, "Unable to determine LWJGL version, defaulting to 3.3.3");
+            iLwjglVersion = 299;
         }
         return libDir.toArray(new String[0]);
     }

@@ -43,6 +43,7 @@ import net.kdt.pojavlaunch.firefly.Logger;
 import net.kdt.pojavlaunch.firefly.MainActivity;
 import net.kdt.pojavlaunch.firefly.R;
 import net.kdt.pojavlaunch.firefly.Tools;
+import net.kdt.pojavlaunch.firefly.tasks.AsyncAssetManager;
 import net.kdt.pojavlaunch.firefly.multirt.MultiRTUtils;
 import net.kdt.pojavlaunch.firefly.multirt.Runtime;
 import net.kdt.pojavlaunch.firefly.plugins.FFmpegPlugin;
@@ -54,6 +55,7 @@ import org.lwjgl.glfw.CallbackBridge;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileReader;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -644,6 +646,17 @@ public class JREUtils {
         // Force LWJGL to use the Freetype library intended for it, instead of using the one
         // that we ship with Java (since it may be older than what's needed)
         userArgs.add("-Dorg.lwjgl.freetype.libname=" + NATIVE_LIB_DIR + "/libfreetype.so");
+
+        // Adds/changes methods for LWJGL2 compatibility
+        File methodsInjectorAgent = new File(Tools.DIR_DATA, "methods_injector_agent/methods_injector_agent.jar");
+        if (!methodsInjectorAgent.exists()) {
+            try {
+                AsyncAssetManager.unpackComponentSync(activity, "methods_injector_agent", true);
+            } catch (IOException e) {
+                Log.e("JREUtils", "Failed to unpack methods_injector_agent", e);
+            }
+        }
+        userArgs.add("-javaagent:" + methodsInjectorAgent.getAbsolutePath());
 
         userArgs.addAll(JVMArgs);
         activity.runOnUiThread(() -> Toast(activity, activity.getString(R.string.autoram_info_msg, LauncherPreferences.PREF_RAM_ALLOCATION)));
