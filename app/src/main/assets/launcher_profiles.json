@@ -1,8 +1,8 @@
 {
   "profiles": {
     "(Default)": {
-      "name": "灰白整合优化手机",
-      "lastVersionId": "26.1.2"
+      "name": "(Default)",
+      "lastVersionId": "1.7.10"
     }
   },
   "selectedProfile": "(Default)"

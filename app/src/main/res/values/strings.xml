@@ -418,7 +418,11 @@
     <string name="controller_remapper_expand_entry">Expand to change keycodes</string>
     <string name="preference_remap_controller_title">Change controller key bindings</string>
     <string name="preference_remap_controller_description">Allows you to modify the keyboard keys bound to each controller button</string>
+    <string name="microsoft_login_title">Minecraft 正版登录</string>
     <string name="local_login_bad_username_title">Unsuitable username</string>
     <string name="local_login_bad_username_text">The username must be between 3–16 characters long, and must only contain latin letters, arabic numerals and underscores.</string>
+
+    <string name="mc_news_title">Minecraft 新闻</string>
+    <string name="mc_news_loading">正在加载新闻...</string>
 
 </resources>

@@ -19,7 +19,7 @@ apply(plugin = "stringfog")
 
 val appPackageName = "work.HGSpace.FireflyAndroid"
 val javaNamespace = "net.kdt.pojavlaunch.firefly"
-val currentVersion = "snowdrop"
+val currentVersion = "bata0.1.0"
 
 var localProperty: Properties? = null
 if (file("${rootDir}/local.properties").exists()) {
@@ -102,7 +102,7 @@ fun setOutputFileName(variant: Variant, output: VariantOutputImpl) {
     val abi = output.getFilter(ABI)?.identifier ?: "all"
     val baseVersionName = currentDate()
     val buildTypeSuffix = if (variant.buildType == "release") baseVersionName else "Debug-${baseVersionName}"
-    val baseName = "Pojav-Glow-Worm-${buildTypeSuffix}"
+    val baseName = "Firefly-${buildTypeSuffix}"
 
     output.outputFileName = "${baseName}-${abi}.apk"
 }
@@ -283,6 +283,7 @@ dependencies {
     implementation("androidx.annotation:annotation:1.5.0")
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    implementation("androidx.cardview:cardview:1.0.0")
 
     implementation("com.bytedance:bytehook:1.0.10")
     implementation("com.github.duanhong169:checkerboarddrawable:1.0.2")

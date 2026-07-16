@@ -18,7 +18,19 @@ import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
 import android.widget.ImageButton;
+import android.widget.TextView;
 import android.widget.Toast;
+
+import net.kdt.pojavlaunch.firefly.PojavApplication;
+
+import org.xmlpull.v1.XmlPullParser;
+import org.xmlpull.v1.XmlPullParserFactory;
+
+import java.io.StringReader;
+
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.Response;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -63,7 +75,14 @@ public class MainMenuFragment extends Fragment implements TaskCountListener {
         Button mPlayButton = view.findViewById(R.id.play_button);
         mVersionSpinner = view.findViewById(R.id.mc_version_spinner);
 
-        mAboutLauncherButton.setOnClickListener(v -> Tools.swapFragment(requireActivity(), AboutFragment.class, AboutFragment.TAG, null));
+        mAboutLauncherButton.setOnClickListener(v -> {
+            Tools.swapFragment(requireActivity(), AboutFragment.class, AboutFragment.TAG, null);
+        });
+
+        // Load Minecraft news asynchronously
+        TextView newsTitle = view.findViewById(R.id.news_title);
+        TextView newsSummary = view.findViewById(R.id.news_summary);
+        loadMinecraftNews(newsTitle, newsSummary);
         Button mModpackButton = view.findViewById(R.id.modpack_button);
         mModpackButton.setOnClickListener(v -> {
             Activity launcheractivity = requireActivity();
@@ -162,6 +181,53 @@ public class MainMenuFragment extends Fragment implements TaskCountListener {
                 .setNegativeButton(android.R.string.cancel, null)
                 .setCancelable(false)
                 .show();
+    }
+
+    private void loadMinecraftNews(TextView newsTitle, TextView newsSummary) {
+        PojavApplication.sExecutorService.execute(() -> {
+            try {
+                OkHttpClient client = new OkHttpClient();
+                // 使用 Minecraft 版本清单 API 获取最新版本信息
+                Request request = new Request.Builder()
+                        .url("https://launchermeta.mojang.com/mc/game/version_manifest.json")
+                        .build();
+                Response response = client.newCall(request).execute();
+                String jsonString = response.body().string();
+
+                // 简单解析 JSON 获取最新版本信息
+                // 格式: {"latest":{"release":"1.21","snapshot":"24w21a"},"versions":[...]}
+                int latestIndex = jsonString.indexOf("\"latest\"");
+                if (latestIndex != -1) {
+                    int releaseIndex = jsonString.indexOf("\"release\":\"", latestIndex);
+                    if (releaseIndex != -1) {
+                        releaseIndex += 11; // 跳过 "release":"
+                        int releaseEnd = jsonString.indexOf("\"", releaseIndex);
+                        String releaseVersion = jsonString.substring(releaseIndex, releaseEnd);
+
+                        int snapshotIndex = jsonString.indexOf("\"snapshot\":\"", latestIndex);
+                        String snapshotVersion = "";
+                        if (snapshotIndex != -1) {
+                            snapshotIndex += 12; // 跳过 "snapshot":"
+                            int snapshotEnd = jsonString.indexOf("\"", snapshotIndex);
+                            snapshotVersion = jsonString.substring(snapshotIndex, snapshotEnd);
+                        }
+
+                        final String title = "Minecraft " + releaseVersion;
+                        final String summary = "最新正式版: " + releaseVersion + "\n最新快照: " + snapshotVersion;
+                        runOnUiThread(() -> {
+                            newsTitle.setText(title);
+                            newsSummary.setText(summary);
+                        });
+                    }
+                }
+            } catch (Exception e) {
+                // 加载失败时显示默认信息
+                runOnUiThread(() -> {
+                    newsTitle.setText("Minecraft 新闻");
+                    newsSummary.setText("点击按钮查看官方动态");
+                });
+            }
+        });
     }
 
     private interface RequestPermissions {

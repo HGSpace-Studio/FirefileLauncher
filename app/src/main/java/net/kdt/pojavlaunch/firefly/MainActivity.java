@@ -57,6 +57,7 @@ import com.firefly.utils.ResolutionAdjuster;
 import com.kdt.LoggerView;
 import com.movtery.feature.ProfileLanguageSelector;
 import com.movtery.feature.mod.parser.ModCheckResult;
+import com.movtery.ui.subassembly.customprofilepath.ProfilePathHome;
 import com.movtery.ui.subassembly.customprofilepath.ProfilePathManager;
 
 import net.kdt.pojavlaunch.firefly.customcontrols.ControlButtonMenuListener;
@@ -82,7 +83,11 @@ import net.kdt.pojavlaunch.firefly.value.launcherprofiles.MinecraftProfile;
 
 import org.lwjgl.glfw.CallbackBridge;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileReader;
+import java.io.FileWriter;
 import java.io.IOException;
 
 public class MainActivity extends BaseActivity implements ControlButtonMenuListener, EditorExitable, ServiceConnection {
@@ -123,23 +128,11 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
         minecraftProfile = LauncherProfiles.getCurrentProfile();
 
         String gameDirPath = Tools.getGameDirPath(minecraftProfile).getAbsolutePath();
-        // Fix fullscreen option: MC 1.21.5+ only accepts true/false, not "off"/"on"
-        File optionsFile = new File(gameDirPath, "options.txt");
-        if (optionsFile.exists()) {
-            try {
-                java.util.List<String> lines = java.nio.file.Files.readAllLines(optionsFile.toPath(), java.nio.charset.StandardCharsets.UTF_8);
-                boolean modified = false;
-                for (int i = 0; i < lines.size(); i++) {
-                    String line = lines.get(i).trim();
-                    if (line.equals("fullscreen:off")) { lines.set(i, "fullscreen:false"); modified = true; }
-                    else if (line.equals("fullscreen:on")) { lines.set(i, "fullscreen:true"); modified = true; }
-                }
-                if (modified) {
-                    java.nio.file.Files.write(optionsFile.toPath(), lines, java.nio.charset.StandardCharsets.UTF_8);
-                }
-            } catch (Exception e) {
-                android.util.Log.w(Tools.APP_NAME, "Failed to fix fullscreen option", e);
-            }
+        // Fix fullscreen option early (also fixed again in Tools.launchMinecraft before JVM start)
+        Tools.fixFullscreenOption(new File(gameDirPath, "options.txt"));
+        File globalOptionsFile = new File(ProfilePathHome.getGameHome(), "options.txt");
+        if (!globalOptionsFile.getAbsolutePath().equals(gameDirPath)) {
+            Tools.fixFullscreenOption(globalOptionsFile);
         }
         MCOptionUtils.load(gameDirPath);
 
@@ -326,7 +319,8 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
     @Override
     public void onAttachedToWindow() {
         LauncherPreferences.computeNotchSize(this);
-        loadControls();
+        // Delay loading controls until after layout is complete (borrowed from Amethyst)
+        mControlLayout.post(this::loadControls);
     }
 
     /**
@@ -351,6 +345,7 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
     public void onResume() {
         super.onResume();
         if (mGyroControl != null) mGyroControl.enable();
+        CallbackBridge.nativeSetWindowAttrib(LwjglGlfwKeycode.GLFW_FOCUSED, 1);
         CallbackBridge.nativeSetWindowAttrib(LwjglGlfwKeycode.GLFW_HOVERED, 1);
     }
 
@@ -360,6 +355,7 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
         if (CallbackBridge.isGrabbing()) {
             sendKeyPress(LwjglGlfwKeycode.GLFW_KEY_ESCAPE);
         }
+        CallbackBridge.nativeSetWindowAttrib(LwjglGlfwKeycode.GLFW_FOCUSED, 0);
         CallbackBridge.nativeSetWindowAttrib(LwjglGlfwKeycode.GLFW_HOVERED, 0);
         super.onPause();
     }
@@ -377,6 +373,17 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
     }
 
     @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        // Sync GLFW focused state with window focus (borrowed from Amethyst)
+        CallbackBridge.nativeSetWindowAttrib(LwjglGlfwKeycode.GLFW_FOCUSED, hasFocus ? 1 : 0);
+        if (hasFocus) {
+            // Re-apply fullscreen when regaining focus (prevents system bars from reappearing)
+            Tools.setFullscreen(this, true);
+        }
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
         CallbackBridge.removeGrabListener(touchpad);
@@ -389,9 +396,12 @@ public class MainActivity extends BaseActivity implements ControlButtonMenuListe
         super.onConfigurationChanged(newConfig);
 
         if (mGyroControl != null) mGyroControl.updateOrientation();
-        Tools.updateWindowSize(this);
-        minecraftGLView.refreshSize();
-        runOnUiThread(() -> {
+        // Use requestLayout + post pattern to ensure layout is complete before calculating sizes (borrowed from Amethyst)
+        mControlLayout.requestLayout();
+        mControlLayout.post(() -> {
+            Tools.setFullscreen(this, true);
+            minecraftGLView.refreshSize();
+            Tools.updateWindowSize(this);
             mControlLayout.refreshControlButtonPositions();
             touchControllerInputView.setSize(minecraftGLView.getWidth(), minecraftGLView.getHeight());
         });

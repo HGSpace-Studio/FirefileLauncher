@@ -249,6 +249,12 @@ public final class Tools {
 
         // Pre-process specific files
         disableSplash(gamedir);
+        fixFullscreenOption(new File(gamedir, "options.txt"));
+        // Also fix global options.txt
+        File globalOptions = new File(ProfilePathHome.getGameHome(), "options.txt");
+        if (!globalOptions.equals(gamedir)) {
+            fixFullscreenOption(globalOptions);
+        }
         String[] launchArgs = getMinecraftClientArgs(minecraftAccount, versionInfo, gamedir);
 
         // Select the appropriate openGL version
@@ -280,6 +286,43 @@ public final class Tools {
         javaArgList.add("-cp");
         String lwjgl3ClassPath = getLWJGL3ClassPath();
         javaArgList.add(launchClassPath + (lwjgl3ClassPath.isEmpty() ? "" : ":" + lwjgl3ClassPath));
+
+        // Forge 1.6.4 crash mitigation
+        // It fails certification and crashes because it thinks Minecraft is corrupted.
+        javaArgList.add("-Dfml.ignoreInvalidMinecraftCertificates=true");
+
+        // Sodium/Embeddium/Rubidium/Xenon mod stability improvements (borrowed from Amethyst)
+        boolean hasSodiumMod = false;
+        File configDir = new File(gamedir, "config");
+        for (String modName : SODIUM_MODS) {
+            if (hasMods(gamedir, modName)) {
+                hasSodiumMod = true;
+                File mixinPropertiesConfigFile = new File(configDir, modName + "-mixins.properties");
+                String[] propertiesToAdd = {
+                        "mixin.features.buffer_builder.intrinsics=false",
+                        "mixin.features.chunk_rendering=false"
+                };
+                List<String> mixinPropertiesConfigStrings = new ArrayList<>();
+                try {
+                    if (mixinPropertiesConfigFile.exists()) {
+                        mixinPropertiesConfigStrings = java.nio.file.Files.readAllLines(mixinPropertiesConfigFile.toPath());
+                    }
+                } catch (IOException ignored) {}
+                for (String newLine : propertiesToAdd) {
+                    if (!mixinPropertiesConfigStrings.contains(newLine)) {
+                        mixinPropertiesConfigStrings.add(newLine);
+                    }
+                }
+                try {
+                    FileUtils.ensureDirectorySilently(configDir);
+                    java.nio.file.Files.write(mixinPropertiesConfigFile.toPath(), mixinPropertiesConfigStrings);
+                } catch (IOException ignored) {}
+            }
+        }
+        if (hasSodiumMod) {
+            javaArgList.add("-Dsodium.checks.issue2561=false");
+            Log.i(APP_NAME, "Sodium-like mod detected, applied stability patches");
+        }
 
         javaArgList.add(versionInfo.mainClass);
         javaArgList.addAll(Arrays.asList(launchArgs));
@@ -313,6 +356,29 @@ public final class Tools {
         return new File(ProfilePathHome.getGameHome());
     }
 
+    /**
+     * Sodium-like mods that need stability patches
+     */
+    private static final String[] SODIUM_MODS = {"sodium", "embeddium", "rubidium", "xenon"};
+
+    /**
+     * Searches for mod in mods directory of the given game directory
+     * Not case-sensitive
+     * @param gameDir the game directory to search in
+     * @param filenames Filename(s) of the .jar mod(s)
+     * @return Whether or not the .jar is found
+     */
+    public static boolean hasMods(File gameDir, String... filenames) {
+        File modsDir = new File(gameDir, "mods");
+        File[] modFiles = modsDir.listFiles(file -> file.isFile() && file.getName().endsWith(".jar"));
+        if (modFiles == null) return false;
+        for (File file : modFiles) {
+            for (String filename : filenames)
+                if (file.getName().toLowerCase().contains(filename.toLowerCase())) return true;
+        }
+        return false;
+    }
+
     public static void buildNotificationChannel(Context context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationChannel channel = new NotificationChannel(
@@ -340,6 +406,61 @@ public final class Tools {
             }
         } else {
             Log.w(Tools.APP_NAME, "Failed to create the configuration directory");
+        }
+    }
+
+    /**
+     * Fix options.txt fullscreen value for MC 1.21.5+ which only accepts true/false, not off/on
+     * Also handles case-insensitive key matching and various value formats
+     */
+    public static void fixFullscreenOption(File optionsFile) {
+        if (!optionsFile.exists()) return;
+        File tempFile = new File(optionsFile.getParent(), optionsFile.getName() + ".tmp");
+        boolean modified = false;
+        try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(optionsFile));
+             java.io.BufferedWriter writer = new java.io.BufferedWriter(new java.io.FileWriter(tempFile))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String trimmed = line.trim();
+                int colonIndex = trimmed.indexOf(':');
+                if (colonIndex > 0) {
+                    String key = trimmed.substring(0, colonIndex);
+                    String value = trimmed.substring(colonIndex + 1).trim();
+                    if (key.equalsIgnoreCase("fullscreen")) {
+                        String newValue = value;
+                        if (value.equalsIgnoreCase("off") || value.equalsIgnoreCase("false")) {
+                            newValue = "false";
+                        } else if (value.equalsIgnoreCase("on") || value.equalsIgnoreCase("true")) {
+                            newValue = "true";
+                        }
+                        if (!newValue.equals(value)) {
+                            writer.write("fullscreen:" + newValue);
+                            modified = true;
+                        } else {
+                            writer.write(line);
+                        }
+                    } else {
+                        writer.write(line);
+                    }
+                } else {
+                    writer.write(line);
+                }
+                writer.newLine();
+            }
+        } catch (Exception e) {
+            Log.w(APP_NAME, "Failed to fix fullscreen in " + optionsFile.getAbsolutePath(), e);
+            tempFile.delete();
+            return;
+        }
+        if (modified) {
+            if (optionsFile.delete() && tempFile.renameTo(optionsFile)) {
+                Log.i(APP_NAME, "Fixed fullscreen option in " + optionsFile.getAbsolutePath());
+            } else {
+                Log.w(APP_NAME, "Failed to replace " + optionsFile.getAbsolutePath());
+                tempFile.delete();
+            }
+        } else {
+            tempFile.delete();
         }
     }
 

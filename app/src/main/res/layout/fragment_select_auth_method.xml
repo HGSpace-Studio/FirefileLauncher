@@ -32,9 +32,21 @@
             android:layout_marginHorizontal="@dimen/_25sdp"
             app:layout_constraintEnd_toEndOf="@+id/login_menu"
             app:layout_constraintStart_toStartOf="@+id/login_menu"
-            app:layout_constraintBottom_toTopOf="@+id/button_other_authentication"
+            app:layout_constraintBottom_toTopOf="@+id/button_microsoft_authentication"
             app:layout_constraintTop_toTopOf="@+id/login_menu"
             app:layout_constraintVertical_chainStyle="packed"/>
+
+    <com.kdt.mcgui.MineButton
+            android:id="@+id/button_microsoft_authentication"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/microsoft_login_title"
+            android:textSize="@dimen/_12ssp"
+            android:layout_marginHorizontal="@dimen/_25sdp"
+            app:layout_constraintBottom_toTopOf="@+id/button_other_authentication"
+            app:layout_constraintEnd_toEndOf="@+id/login_menu"
+            app:layout_constraintStart_toStartOf="@+id/login_menu"
+            app:layout_constraintTop_toBottomOf="@+id/button_local_authentication"/>
 
     <com.kdt.mcgui.MineButton
             android:id="@+id/button_other_authentication"
@@ -46,6 +58,6 @@
             app:layout_constraintBottom_toBottomOf="@+id/login_menu"
             app:layout_constraintEnd_toEndOf="@+id/login_menu"
             app:layout_constraintStart_toStartOf="@+id/login_menu"
-            app:layout_constraintTop_toBottomOf="@+id/button_local_authentication"/>
+            app:layout_constraintTop_toBottomOf="@+id/button_microsoft_authentication"/>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

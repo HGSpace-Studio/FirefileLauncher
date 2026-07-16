@@ -21,5 +21,7 @@ public class ExtraConstants {
     public static final String START_DOWNLOADER = "start_downloader";
     /* ExtraCore Constant:Other login methods */
     public static final String OTHER_LOGIN_TODO = "other_login_todo";
+    /* ExtraCore Constant: Microsoft authentication login callback */
+    public static final String MICROSOFT_LOGIN_TODO = "microsoft_login_todo";
 
 }

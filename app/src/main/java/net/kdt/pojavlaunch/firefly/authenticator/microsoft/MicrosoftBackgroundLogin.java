@@ -37,7 +37,13 @@ import java.util.Map;
  */
 // TODO handle connection errors !
 public class MicrosoftBackgroundLogin {
-    private static final String authTokenUrl = "https://login.live.com/oauth20_token.srf";
+    // Azure AD 应用配置
+    private static final String CLIENT_ID = "1cabeaef-70e5-4834-8aeb-85ff3671c46d";
+    private static final String TENANT_ID = "f54f4ca4-5762-4066-82c2-9e0f0cd0b413";
+    private static final String REDIRECT_URI = "https://login.live.com/oauth20_desktop.srf";
+    private static final String SCOPE = "service::user.auth.xboxlive.com::MBI_SSL";
+
+    private static final String authTokenUrl = "https://login.microsoftonline.com/" + TENANT_ID + "/oauth2/v2.0/token";
     private static final String xblAuthUrl = "https://user.auth.xboxlive.com/user/authenticate";
     private static final String xstsAuthUrl = "https://xsts.auth.xboxlive.com/xsts/authorize";
     private static final String mcLoginUrl = "https://api.minecraftservices.com/authentication/login_with_xbox";
@@ -124,11 +130,11 @@ public class MicrosoftBackgroundLogin {
         Log.i("MicrosoftLogin", "isRefresh=" + isRefresh + ", authCode= " + authcode);
 
         String formData = convertToFormData(
-                "client_id", "00000000402b5328",
+                "client_id", CLIENT_ID,
                 isRefresh ? "refresh_token" : "code", authcode,
                 "grant_type", isRefresh ? "refresh_token" : "authorization_code",
-                "redirect_url", "https://login.live.com/oauth20_desktop.srf",
-                "scope", "service::user.auth.xboxlive.com::MBI_SSL"
+                "redirect_uri", REDIRECT_URI,
+                "scope", SCOPE
         );
 
         Log.i("MicroAuth", formData);

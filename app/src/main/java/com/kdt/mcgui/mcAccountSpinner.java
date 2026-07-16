@@ -32,6 +32,7 @@ import net.kdt.pojavlaunch.firefly.PojavApplication;
 import net.kdt.pojavlaunch.firefly.PojavProfile;
 import net.kdt.pojavlaunch.firefly.R;
 import net.kdt.pojavlaunch.firefly.Tools;
+import net.kdt.pojavlaunch.firefly.authenticator.microsoft.MicrosoftBackgroundLogin;
 import net.kdt.pojavlaunch.firefly.authenticator.listener.DoneListener;
 import net.kdt.pojavlaunch.firefly.authenticator.listener.ErrorListener;
 import net.kdt.pojavlaunch.firefly.extra.ExtraConstants;
@@ -119,7 +120,15 @@ public class mcAccountSpinner extends AppCompatSpinner implements AdapterView.On
 
         ExtraCore.addExtraListener(ExtraConstants.LOCAL_LOGIN_TODO, mLocalLoginListener);
         ExtraCore.addExtraListener(ExtraConstants.OTHER_LOGIN_TODO, mOtherLoginListener);
+        ExtraCore.addExtraListener(ExtraConstants.MICROSOFT_LOGIN_TODO, mMicrosoftLoginListener);
     }
+
+    /* Triggered when Microsoft login completes (account is already saved by LauncherActivity) */
+    private final ExtraListener mMicrosoftLoginListener = (key, value) -> {
+        if (!(value instanceof MinecraftAccount)) return false;
+        mDoneListener.onLoginDone((MinecraftAccount) value);
+        return false;
+    };
 
 
     @Override
@@ -216,6 +225,22 @@ public class mcAccountSpinner extends AppCompatSpinner implements AdapterView.On
 
     private void performLogin(MinecraftAccount minecraftAccount) {
         if (minecraftAccount.isLocal()) return;
+        if (minecraftAccount.isMicrosoft) {
+            // Refresh Microsoft account token if expired
+            if (System.currentTimeMillis() > minecraftAccount.expiresAt) {
+                MicrosoftBackgroundLogin msLogin = new MicrosoftBackgroundLogin(true, minecraftAccount.msaRefreshToken);
+                msLogin.performLogin(
+                        null,
+                        (DoneListener) account -> {
+                            ExtraCore.setValue(ExtraConstants.MICROSOFT_LOGIN_TODO, account);
+                        },
+                        (ErrorListener) error -> {
+                            mErrorListener.onLoginError(error);
+                        }
+                );
+            }
+            return;
+        }
         if (!Objects.isNull(minecraftAccount.baseUrl) && !minecraftAccount.baseUrl.equals("0")) {
             OtherLoginApi.getINSTANCE().setBaseUrl(minecraftAccount.baseUrl);
             PojavApplication.sExecutorService.execute(() -> {

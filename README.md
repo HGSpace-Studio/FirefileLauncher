@@ -46,7 +46,7 @@ Firefly Android Launcher 基于 [PojavLauncher](https://github.com/PojavLauncher
 | 离线 / 本地 | 支持 |
 | 皮肤站（authlib-injector） | 支持 |
 | 皮肤站（nide8auth） | 支持 |
-| 微软登录 | **已移除** |
+| 微软登录 | 支持 |
 | Mojang 登录 | **已移除** |
 
 ---

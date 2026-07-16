@@ -9,6 +9,7 @@ import android.app.NotificationManager;
 import android.content.Context;
 import android.content.pm.PackageManager;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
@@ -30,6 +31,9 @@ import com.firefly.feature.UpdateLauncher;
 import com.kdt.mcgui.ProgressLayout;
 import com.kdt.mcgui.mcAccountSpinner;
 
+import net.kdt.pojavlaunch.firefly.authenticator.listener.DoneListener;
+import net.kdt.pojavlaunch.firefly.authenticator.listener.ErrorListener;
+import net.kdt.pojavlaunch.firefly.authenticator.microsoft.MicrosoftBackgroundLogin;
 import net.kdt.pojavlaunch.firefly.contracts.OpenDocumentWithExtension;
 import net.kdt.pojavlaunch.firefly.extra.ExtraConstants;
 import net.kdt.pojavlaunch.firefly.extra.ExtraCore;
@@ -54,6 +58,7 @@ import net.kdt.pojavlaunch.firefly.modloaders.modpacks.api.ModLoader;
 import net.kdt.pojavlaunch.firefly.modloaders.modpacks.api.NotificationDownloadListener;
 import net.kdt.pojavlaunch.firefly.value.launcherprofiles.LauncherProfiles;
 import net.kdt.pojavlaunch.firefly.value.launcherprofiles.MinecraftProfile;
+import net.kdt.pojavlaunch.firefly.value.MinecraftAccount;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -139,6 +144,29 @@ public class LauncherActivity extends BaseActivity {
 
     private final ExtraListener<Boolean> mSkipDownloadMinecraft = (key, value) -> {
         mLaunchGame(false);
+        return false;
+    };
+
+    /* Listener for Microsoft login callback from WebView */
+    private final ExtraListener mMicrosoftLoginListener = (key, value) -> {
+        if (!(value instanceof Uri)) return false;
+        Uri uri = (Uri) value;
+        String code = uri.getQueryParameter("code");
+        if (code == null) {
+            Toast.makeText(this, "Failed to get authorization code", Toast.LENGTH_SHORT).show();
+            return false;
+        }
+        MicrosoftBackgroundLogin msLogin = new MicrosoftBackgroundLogin(false, code);
+        msLogin.performLogin(
+                null,
+                (DoneListener) account -> {
+                    // Login succeeded, pass the account to mcAccountSpinner via ExtraCore
+                    ExtraCore.setValue(ExtraConstants.MICROSOFT_LOGIN_TODO, account);
+                },
+                (ErrorListener) error -> {
+                    Tools.showError(this, error);
+                }
+        );
         return false;
     };
 
@@ -238,6 +266,7 @@ public class LauncherActivity extends BaseActivity {
         // ExtraCore.addExtraListener(ExtraConstants.LAUNCH_GAME, mLaunchGameListener);
         ExtraCore.addExtraListener(ExtraConstants.START_DOWNLOADER, mStartDownloadMinecraft);
         ExtraCore.addExtraListener(ExtraConstants.SKIP_DOWNLOADER, mSkipDownloadMinecraft);
+        ExtraCore.addExtraListener(ExtraConstants.MICROSOFT_LOGIN_TODO, mMicrosoftLoginListener);
 
         new AsyncVersionList().getVersionList(versions -> ExtraCore.setValue(ExtraConstants.RELEASE_TABLE, versions), false);
 
@@ -323,6 +352,7 @@ public class LauncherActivity extends BaseActivity {
         // ExtraCore.removeExtraListenerFromValue(ExtraConstants.LAUNCH_GAME, mLaunchGameListener);
         ExtraCore.removeExtraListenerFromValue(ExtraConstants.START_DOWNLOADER, mStartDownloadMinecraft);
         ExtraCore.removeExtraListenerFromValue(ExtraConstants.SKIP_DOWNLOADER, mSkipDownloadMinecraft);
+        ExtraCore.removeExtraListenerFromValue(ExtraConstants.MICROSOFT_LOGIN_TODO, mMicrosoftLoginListener);
 
         getSupportFragmentManager().unregisterFragmentLifecycleCallbacks(mFragmentCallbackListener);
     }
