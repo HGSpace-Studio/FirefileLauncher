@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { Component, Package, Sun, Grid2x2Check, LoaderCircle, ChevronLeft, ChevronRight } from "@lucide/vue";
+import { Icon as VIcon } from "@vicons/utils";
+import { PuzzlePiece24Regular, Box24Regular, WeatherSunny24Regular, GridDots24Regular, ArrowClockwise24Regular, ChevronLeft24Regular, ChevronRight24Regular } from "@vicons/fluent";
 import { getCache, setCache } from "../../utils/cache";
 
 const { t } = useI18n();
@@ -9,10 +10,10 @@ const { t } = useI18n();
 const activeTab = ref("mods");
 
 const tabs = [
-  { id: "mods", label: "模组", icon: Component },
-  { id: "modpack", label: "整合包", icon: Package },
-  { id: "shader", label: "光影包", icon: Sun },
-  { id: "resourcepack", label: "资源包", icon: Grid2x2Check },
+  { id: "mods", label: "模组", icon: PuzzlePiece24Regular },
+  { id: "modpack", label: "整合包", icon: Box24Regular },
+  { id: "shader", label: "光影包", icon: WeatherSunny24Regular },
+  { id: "resourcepack", label: "资源包", icon: GridDots24Regular },
 ];
 
 interface ModrinthProject {
@@ -140,24 +141,24 @@ function formatDate(iso: string): string {
             :class="{ active: activeTab === tab.id }"
             @click="activeTab = tab.id"
           >
-            <component :is="tab.icon" :size="16" />
+            <VIcon :size="16"><component :is="tab.icon" /></VIcon>
             <span>{{ tab.label }}</span>
           </button>
         </div>
         <div v-if="totalPages > 1" class="pagination">
           <button class="page-btn" :disabled="currentPage <= 1" @click="currentPage--; fetchProjects()">
-            <ChevronLeft :size="16" />
+            <VIcon :size="16"><ChevronLeft24Regular /></VIcon>
           </button>
           <span class="page-info">{{ currentPage }} / {{ totalPages }}</span>
           <button class="page-btn" :disabled="currentPage >= totalPages" @click="currentPage++; fetchProjects()">
-            <ChevronRight :size="16" />
+            <VIcon :size="16"><ChevronRight24Regular /></VIcon>
           </button>
         </div>
       </div>
     </div>
     <div class="resources-area">
       <div v-if="loading" class="resources-loading">
-        <LoaderCircle :size="20" class="spinner" />
+        <VIcon :size="20"><ArrowClockwise24Regular class="spinner" /></VIcon>
         <span>正在获取资源列表...</span>
       </div>
       <div v-else-if="projects.length === 0" class="resources-empty">
@@ -200,7 +201,7 @@ function formatDate(iso: string): string {
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 24px 0 80px;
+  padding: 24px 0 var(--content-bottom-pad, 80px);
   overflow-y: auto;
 }
 
@@ -305,23 +306,21 @@ function formatDate(iso: string): string {
 }
 
 .project-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 12px;
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  align-content: start;
 }
 
 .project-card {
-  width: 100%;
-  height: 100px;
   border-radius: 12px;
   text-decoration: none;
   color: inherit;
   cursor: pointer;
   display: block;
-  flex-shrink: 0;
   background: transparent;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
   transition: box-shadow 0.25s, transform 0.25s;
@@ -334,16 +333,17 @@ function formatDate(iso: string): string {
 
 .project-card-inner {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 16px;
-  height: 100%;
+  gap: 8px;
+  padding: 20px 16px 16px;
+  text-align: center;
 }
 
 .project-card-icon {
-  width: 48px;
-  height: 48px;
-  border-radius: 10px;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
   flex-shrink: 0;
   object-fit: cover;
 }
@@ -353,13 +353,14 @@ function formatDate(iso: string): string {
   flex-direction: column;
   gap: 3px;
   min-width: 0;
+  width: 100%;
 }
 
 .project-card-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--title-color);
-  line-height: 1.2;
+  line-height: 1.3;
 }
 
 .project-card-meta {
@@ -372,8 +373,9 @@ function formatDate(iso: string): string {
 .project-card-tags {
   display: flex;
   gap: 6px;
-  margin-top: 2px;
+  margin-top: 4px;
   flex-wrap: wrap;
+  justify-content: center;
 }
 
 .project-tag {

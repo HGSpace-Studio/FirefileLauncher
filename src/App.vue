@@ -1,18 +1,19 @@
 <script setup lang="ts">
-import { ref, computed, provide, onMounted } from "vue";
+import { ref, computed, provide, onMounted, watch } from "vue";
 import { useTaskStore } from "./stores/taskStore";
 import { navigateToInstance } from "./stores/navigation";
 import { currentInstanceName, currentLaunchFn, currentStopFn } from "./stores/instanceLaunch";
-import { openedInstances } from "./stores/openedInstances";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { Home, Store, LayoutGridIcon, Plus, Settings, Bolt, Square, ChevronRight, Play, LoaderCircle, Gamepad2, Ellipsis } from "@lucide/vue";
+import { Icon as VIcon } from "@vicons/utils";
+import { Home24Regular, StoreMicrosoft24Regular, Grid24Regular, Add24Regular, Settings24Regular, Flash24Regular, Square24Regular, ChevronRight24Regular, Play24Regular, ArrowClockwise24Regular, Games24Regular, MoreHorizontal24Regular } from "@vicons/fluent";
 import logo from "./assets/logos/logo.png";
 import steve from "./assets/imgs/skins/avator/steve.png";
 import alex from "./assets/imgs/skins/avator/alex.png";
 import default1Bg from "./assets/imgs/background/default1.png";
 
+import Sidebar from "./components/Sidebar.vue";
 import NewMciRoot from "./components/view/new_mci/root_interface.vue";
 import HomePage from "./components/view/HomePage.vue";
 import LibraryPage from "./components/view/rootpages/versionroot.vue";
@@ -30,12 +31,17 @@ const isLinux = navigator.userAgent.toLowerCase().includes("linux");
 const maxed = ref(false);
 const nav = ref("home");
 const showSettings = ref(false);
+const showAccount = ref(false);
 const showNewInst = ref(false);
 const showingInstance = ref(false);
 provide('showingInstance', showingInstance);
 const goBackLib = ref(0);
 provide('goBackLib', goBackLib);
 const taskOpen = ref(false);
+const isFullscreenUI = ref(localStorage.getItem("firefile-ui-layout") !== "sidebar");
+watch(showSettings, (val: boolean) => {
+  if (!val) isFullscreenUI.value = localStorage.getItem("firefile-ui-layout") !== "sidebar";
+});
 const userName = ref("");
 const userType = ref("");
 
@@ -51,19 +57,38 @@ const userLabel = computed(() => {
 });
 
 const navItems = [
-  { id: "home", icon: Home },
-  { id: "resourcescenter", icon: Store },
-  { id: "library", icon: LayoutGridIcon },
-  { id: "add-instance", icon: Plus },
-  { id: "settings", icon: Settings },
+  { id: "home", icon: Home24Regular },
+  { id: "resourcescenter", icon: StoreMicrosoft24Regular },
+  { id: "library", icon: Grid24Regular },
+  { id: "add-instance", icon: Add24Regular },
+  { id: "settings", icon: Settings24Regular },
 ];
 const taskTab = ref<"tasks" | "running">("tasks");
 const { tasks } = useTaskStore();
 const running = computed(() => tasks.value.filter(t => t.status === "running"));
 const filteredTasks = computed(() => tasks.value.filter(t => t.status !== "running" && t.status !== "exited"));
+
+interface InstanceEntry {
+  name: string;
+  version: string;
+  version_type: string;
+  loader: { type: string; version: string } | null;
+  icon: string | null;
+  installed: boolean;
+}
+
+const instances = ref<InstanceEntry[]>([]);
+async function loadInstances() {
+  try {
+    instances.value = await invoke<InstanceEntry[]>("get_instances_list");
+  } catch {
+    instances.value = [];
+  }
+}
+
 const MAX_VISIBLE_INSTANCES = 3;
-const visibleInstances = computed(() => openedInstances.value.slice(0, MAX_VISIBLE_INSTANCES));
-const overflowInstances = computed(() => openedInstances.value.slice(MAX_VISIBLE_INSTANCES));
+const visibleInstances = computed(() => instances.value.slice(0, MAX_VISIBLE_INSTANCES));
+const overflowInstances = computed(() => instances.value.slice(MAX_VISIBLE_INSTANCES));
 const instMenuOpen = ref(false);
 const instMoreRef = ref<HTMLElement | null>(null);
 function closeInstMenu(e: MouseEvent) {
@@ -86,6 +111,7 @@ function onDockLaunch() {
 
 function onNav(id: string) {
   if (id === "settings") { showSettings.value = true; return; }
+  if (id === "account") { showAccount.value = true; return; }
   if (id === "add-instance") { showNewInst.value = true; return; }
   if (id === "library" && showingInstance.value) {
     goBackLib.value++;
@@ -121,8 +147,10 @@ onMounted(async () => {
   maxed.value = await app.isMaximized();
   listen("tauri://resize", async () => { maxed.value = await app.isMaximized(); });
   loadAccount();
+  loadInstances();
   listen("account-refresh", loadAccount);
   window.addEventListener("account-changed", loadAccount);
+  window.addEventListener("instance-installed", loadInstances);
   document.addEventListener("click", e => {
     if (!(e.target as HTMLElement).closest(".task-wrap")) taskOpen.value = false;
   });
@@ -134,16 +162,23 @@ onMounted(async () => {
   <OnboardingWindow v-if="isOobe" />
   <CrashShell v-else-if="isCrash" />
   <div v-else class="root">
-    <header class="bar" :class="{ mac: isMac }" @mousedown="(e: MouseEvent) => { const t = e.target as HTMLElement; if (isLinux && !t.closest('button,input,select,a')) app.startDragging(); }">
+    <header class="bar" :class="{ mac: isMac, 'bar-bordered': !isFullscreenUI }" @mousedown="(e: MouseEvent) => { const t = e.target as HTMLElement; if (isLinux && !t.closest('button,input,select,a')) app.startDragging(); }">
       <div class="bar-left">
         <img class="barlogo" :src="logo" />
         <span class="bartitle" v-if="!isMac">Firefiles Launcher</span>
+        <button v-if="!isFullscreenUI" class="bar-account" @click="onNav('account')">
+          <img :src="avatar" class="bar-avatar" />
+          <div class="bar-accinfo">
+            <span class="bar-accname">{{ userName || '未设置' }}</span>
+            <span class="bar-acctype">{{ userLabel }}</span>
+          </div>
+        </button>
       </div>
       <div class="bar-center"></div>
       <div class="bar-right">
         <div class="task-wrap">
           <button class="taskbtn" @click.stop="taskOpen = !taskOpen">
-            <Bolt :size="16" />
+            <VIcon :size="16"><Flash24Regular /></VIcon>
             <span class="tasklbl">{{ tasks.length > 0 ? tasks.length + ' 个任务进行中' : '还没有任务啊' }}</span>
           </button>
           <div v-if="taskOpen" class="taskdrop">
@@ -168,8 +203,8 @@ onMounted(async () => {
                 <div class="tih">
                   <span class="titl">{{ t.title }}</span>
                   <div class="tiactions">
-                    <button class="tiaction stop" @click="invoke('stop_game')"><Square :size="14" /></button>
-                    <button class="tiaction" @click="goInst({ name: t.title, version: '', version_type: '' })"><ChevronRight :size="14" /></button>
+                    <button class="tiaction stop" @click="invoke('stop_game')"><VIcon :size="14"><Square24Regular /></VIcon></button>
+                    <button class="tiaction" @click="goInst({ name: t.title, version: '', version_type: '' })"><VIcon :size="14"><ChevronRight24Regular /></VIcon></button>
                   </div>
                 </div>
               </div>
@@ -190,82 +225,120 @@ onMounted(async () => {
         </div>
       </div>
     </header>
-    <main class="main">
-      <HomePage v-show="nav === 'home'" />
-      <LibraryPage v-show="nav === 'library'" @open-new-instance="showNewInst = true" />
-      <ResourcesCenter v-show="nav === 'resourcescenter'" />
-      <AccountInterface v-show="nav === 'account'" />
-    </main>
+    <div class="body-area" :class="{ 'with-dock': isFullscreenUI }">
+      <Sidebar
+        v-if="!isFullscreenUI"
+        :nav-items="navItems"
+        :visible-instances="visibleInstances"
+        :overflow-instances="overflowInstances"
+        :active-nav="nav"
+        :showing-instance="showingInstance"
+        :current-instance-name="currentInstanceName"
+        @navigate="onNav"
+        @go-inst="goInst"
+        @toggle-inst-menu="instMenuOpen = !instMenuOpen"
+      />
+      <main class="main" :class="{ 'main-bordered': !isFullscreenUI }" :style="{ '--content-bottom-pad': isFullscreenUI ? '80px' : '12px' }">
+        <HomePage v-show="nav === 'home'" />
+        <LibraryPage v-show="nav === 'library'" @open-new-instance="showNewInst = true" />
+        <ResourcesCenter v-show="nav === 'resourcescenter'" />
+      </main>
+    </div>
+    <AccountInterface v-if="showAccount" @close="showAccount = false" />
     <NewMciRoot v-if="showNewInst" @close="showNewInst = false" @navigate="(id: string) => { showNewInst = false; nav = id }" />
-    <div class="dock-wrap">
-      <nav class="dock">
-        <button v-if="userName" class="daccount" @click="onNav('account')">
-          <img :src="avatar" class="davatar" />
-          <div class="daccinfo">
-            <span class="daccname">{{ userName }}</span>
-            <span class="dacctype">{{ userLabel }}</span>
-          </div>
+    <template v-if="isFullscreenUI">
+      <div class="dock-wrap">
+        <nav class="dock">
+          <button class="daccount" @click="onNav('account')">
+            <img :src="avatar" class="davatar" />
+            <div class="daccinfo">
+              <span class="daccname">{{ userName || '未设置' }}</span>
+              <span class="dacctype">{{ userLabel }}</span>
+            </div>
+          </button>
+          <div class="dsep"></div>
+          <button
+            v-for="item in navItems.slice(0, 3)"
+            :key="item.id"
+            class="ditem"
+            :class="{ on: nav === item.id && !(item.id === 'library' && showingInstance) }"
+            @click="onNav(item.id)"
+          >
+            <VIcon :size="21"><component :is="item.icon" /></VIcon>
+          </button>
+          <div class="dsep"></div>
+          <button
+            v-for="inst in visibleInstances"
+            :key="inst.name"
+            class="ditem inst-icon"
+            :class="{ on: nav === 'library' && currentInstanceName === inst.name }"
+            @click="goInst(inst)"
+          >
+            <VIcon :size="18"><Games24Regular /></VIcon>
+          </button>
+          <button
+            v-if="overflowInstances.length > 0"
+            ref="instMoreRef"
+            class="ditem inst-more"
+            :class="{ on: instMenuOpen }"
+            @click.stop="instMenuOpen = !instMenuOpen"
+          >
+            <VIcon :size="18"><MoreHorizontal24Regular /></VIcon>
+          </button>
+          <Teleport to="body">
+            <div v-if="instMenuOpen" class="inst-menu" @click.stop>
+              <button
+                v-for="inst in overflowInstances"
+                :key="inst.name"
+                class="inst-menu-item"
+                :class="{ on: currentInstanceName === inst.name }"
+                @click="goInst(inst); instMenuOpen = false"
+              >
+                <VIcon :size="16"><Games24Regular /></VIcon>
+                <span>{{ inst.name }}</span>
+              </button>
+            </div>
+          </Teleport>
+          <button
+            v-for="item in navItems.slice(3)"
+            :key="item.id"
+            class="ditem"
+            :class="{ on: nav === item.id }"
+            @click="onNav(item.id)"
+          >
+            <VIcon :size="21"><component :is="item.icon" /></VIcon>
+          </button>
+        </nav>
+        <button v-if="nav === 'library' && showingInstance" class="dlaunch" :class="{ running: dockTask?.status === 'running' }" @click="onDockLaunch">
+          <VIcon v-if="dockTask?.status === 'launching'" :size="18"><ArrowClockwise24Regular class="spin" /></VIcon>
+          <VIcon v-else-if="dockTask?.status === 'running'" :size="18"><Square24Regular /></VIcon>
+          <VIcon v-else :size="18"><Play24Regular /></VIcon>
+          <span>{{ dockTask?.status === 'running' ? '运行中' : dockTask?.status === 'launching' ? '启动中...' : '启动该实例' }}</span>
         </button>
-        <div class="dsep"></div>
-        <button
-          v-for="item in navItems.slice(0, 3)"
-          :key="item.id"
-          class="ditem"
-          :class="{ on: nav === item.id && !(item.id === 'library' && showingInstance) }"
-          @click="onNav(item.id)"
-        >
-          <component :is="item.icon" :size="21" />
-        </button>
-        <div class="dsep"></div>
-        <button
-          v-for="inst in visibleInstances"
-          :key="inst.name"
-          class="ditem inst-icon"
-          :class="{ on: nav === 'library' && currentInstanceName === inst.name }"
-          @click="goInst(inst)"
-        >
-          <Gamepad2 :size="18" />
-        </button>
-        <button
-          v-if="overflowInstances.length > 0"
-          ref="instMoreRef"
-          class="ditem inst-more"
-          :class="{ on: instMenuOpen }"
-          @click.stop="instMenuOpen = !instMenuOpen"
-        >
-          <Ellipsis :size="18" />
-        </button>
-        <Teleport to="body">
-          <div v-if="instMenuOpen" class="inst-menu" @click.stop>
-            <button
-              v-for="inst in overflowInstances"
-              :key="inst.name"
-              class="inst-menu-item"
-              :class="{ on: currentInstanceName === inst.name }"
-              @click="goInst(inst); instMenuOpen = false"
-            >
-              <Gamepad2 :size="16" />
-              <span>{{ inst.name }}</span>
-            </button>
-          </div>
-        </Teleport>
-        <button
-          v-for="item in navItems.slice(3)"
-          :key="item.id"
-          class="ditem"
-          :class="{ on: nav === item.id }"
-          @click="onNav(item.id)"
-        >
-          <component :is="item.icon" :size="21" />
-        </button>
-      </nav>
-      <button v-if="nav === 'library' && showingInstance" class="dlaunch" :class="{ running: dockTask?.status === 'running' }" @click="onDockLaunch">
-        <LoaderCircle v-if="dockTask?.status === 'launching'" :size="18" class="spin" />
-        <Square v-else-if="dockTask?.status === 'running'" :size="18" />
-        <Play v-else :size="18" />
+      </div>
+    </template>
+    <template v-if="!isFullscreenUI && nav === 'library' && showingInstance">
+      <button class="slaunch" :class="{ running: dockTask?.status === 'running' }" @click="onDockLaunch">
+        <VIcon v-if="dockTask?.status === 'launching'" :size="18"><ArrowClockwise24Regular class="spin" /></VIcon>
+        <VIcon v-else-if="dockTask?.status === 'running'" :size="18"><Square24Regular /></VIcon>
+        <VIcon v-else :size="18"><Play24Regular /></VIcon>
         <span>{{ dockTask?.status === 'running' ? '运行中' : dockTask?.status === 'launching' ? '启动中...' : '启动该实例' }}</span>
       </button>
-    </div>
+    </template>
+    <Teleport to="body">
+      <div v-if="!isFullscreenUI && instMenuOpen" class="inst-menu sidebar-inst-menu" @click.stop>
+        <button
+          v-for="inst in overflowInstances"
+          :key="inst.name"
+          class="inst-menu-item"
+          :class="{ on: currentInstanceName === inst.name }"
+          @click="goInst(inst); instMenuOpen = false"
+        >
+          <VIcon :size="16"><Games24Regular /></VIcon>
+          <span>{{ inst.name }}</span>
+        </button>
+      </div>
+    </Teleport>
     <SettingsInterface v-if="showSettings" @close="showSettings = false" />
   </div>
 </template>
@@ -299,29 +372,66 @@ body {
   -webkit-app-region: no-drag;
 }
 .bar.mac .bar-left { padding-left: 0; }
-.barlogo { height: 20px; width: auto; }
+.barlogo { height: 24px; width: auto; }
 .bar.mac .barlogo { margin-left: 8px; }
 .bartitle { font-size: 13px; font-weight: 600; color: var(--title-color); opacity: 0.85; white-space: nowrap; }
 .bar.mac .bartitle { display: none; }
+.bar-account {
+  display: flex; align-items: center; gap: 8px; padding: 2px 8px 2px 4px;
+  border: none; border-radius: 8px; background: transparent; cursor: pointer;
+  color: var(--title-color); transition: background 0.15s;
+}
+.bar-account:hover { background: var(--sidebar-hover); }
+.bar-avatar { width: 24px; height: 24px; border-radius: 6px; image-rendering: pixelated; }
+.bar-accinfo { display: flex; flex-direction: column; gap: 1px; text-align: left; }
+.bar-accname { font-size: 12px; font-weight: 600; line-height: 1.2; }
+.bar-acctype { font-size: 10px; opacity: 0.5; line-height: 1; }
 .bar-center { flex: 1; }
 .bar-right { display: flex; align-items: center; gap: 4px; -webkit-app-region: no-drag; }
+.bar-bordered {
+}
 
 /* background */
 .root::before {
   content: '';
   position: absolute;
   inset: -20px;
-  z-index: -1;
+  z-index: -2;
   background-image: var(--bg-image, none);
   background-size: cover;
   background-position: center;
   background-repeat: no-repeat;
   filter: blur(var(--bg-blur, 5px));
 }
+.root::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--blur-overlay);
+  border-radius: 16px;
+}
+
+/* body area */
+.body-area {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+.body-area.with-dock {
+  padding: 0 0 0 12px;
+}
 
 /* main */
 .main {
-  flex: 1; display: flex; overflow: hidden; margin: 0 0 0 12px; min-height: 0;
+  flex: 1; display: flex; overflow: hidden; min-height: 0;
+}
+.main-bordered {
+  border-top: 1px solid var(--content-border);
+  border-left: 1px solid var(--content-border);
+  border-radius: 9px 0 0 0;
+  box-shadow: inset 1px 1px 4px rgba(0,0,0,0.26);
 }
 
 /* task btn */
@@ -423,6 +533,37 @@ body {
 }
 
 .dlaunch.running:hover {
+  background: #d43a3a;
+}
+
+.slaunch {
+  position: fixed;
+  bottom: 14px;
+  left: 64px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 18px;
+  height: 36px;
+  border: none;
+  border-radius: 10px;
+  background: #0078d4;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+  z-index: 50;
+}
+.slaunch:hover {
+  background: #0086e6;
+}
+.slaunch.running {
+  background: rgba(212,58,58,0.85);
+}
+.slaunch.running:hover {
   background: #d43a3a;
 }
 
@@ -559,7 +700,11 @@ body {
   color: #fff;
 }
 
-
+.sidebar-inst-menu {
+  left: 190px !important;
+  bottom: 70px !important;
+  transform: none !important;
+}
 
 /* window controls */
 .winctrl { display: flex; height: 100%; }
@@ -594,6 +739,7 @@ body {
   --sidebar-active-color: #1d1d1f; --tooltip-bg: #1d1d1f; --tooltip-color: #f5f5f7;
   --content-bg: #f6f6f6; --settings-icon-bg: #0078d4; --window-border: rgba(0,0,0,0.12);
   --content-border: rgba(0,0,0,0.25); --dock-border: #c7c7c7;
+  --blur-overlay: rgba(236, 236, 236, 0.25);
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -602,6 +748,7 @@ body {
     --sidebar-active-color: #f5f5f7; --tooltip-bg: #e0e0e0; --tooltip-color: #1d1d1f;
     --content-bg: #1c1c1e; --settings-icon-bg: #60a5fa; --window-border: rgba(255,255,255,0.12);
     --content-border: rgba(255,255,255,0.2); --dock-border: #555555;
+    --blur-overlay: rgba(20, 20, 22, 0.45);
   }
   .wbtn:hover { background: rgba(255,255,255,0.1); box-shadow: 0 0 10px rgba(0,0,0,0.3); }
   .wbtn.close:hover { background: #e81123; color: #fff; box-shadow: 0 0 10px rgba(232,17,35,0.5); }
@@ -612,6 +759,7 @@ html[data-theme="light"] {
   --sidebar-active-color: #1d1d1f; --tooltip-bg: #1d1d1f; --tooltip-color: #f5f5f7;
   --content-bg: #f6f6f6; --settings-icon-bg: #0078d4; --window-border: rgba(0,0,0,0.12);
   --content-border: rgba(0,0,0,0.25); --dock-border: #c7c7c7;
+  --blur-overlay: rgba(236, 236, 236, 0.25);
 }
 html[data-theme="dark"] {
   --panel-bg: #2d2d2d; --title-color: #f5f5f7; --sidebar-color: #e0e0e0;
@@ -619,6 +767,7 @@ html[data-theme="dark"] {
   --sidebar-active-color: #f5f5f7; --tooltip-bg: #e0e0e0; --tooltip-color: #1d1d1f;
   --content-bg: #1c1c1e; --settings-icon-bg: #60a5fa; --window-border: rgba(255,255,255,0.12);
   --content-border: rgba(255,255,255,0.2); --dock-border: #555555;
+  --blur-overlay: rgba(20, 20, 22, 0.45);
 }
 html[data-theme="dark"] .wbtn:hover { background: rgba(255,255,255,0.1); box-shadow: 0 0 10px rgba(0,0,0,0.3); }
 html[data-theme="dark"] .wbtn.close:hover { background: #e81123; color: #fff; box-shadow: 0 0 10px rgba(232,17,35,0.5); }

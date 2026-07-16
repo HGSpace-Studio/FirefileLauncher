@@ -2,7 +2,8 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
 import { invoke } from "@tauri-apps/api/core";
-import { Rocket } from "@lucide/vue";
+import { Icon as VIcon } from "@vicons/utils";
+import { Rocket24Regular } from "@vicons/fluent";
 
 const { t } = useI18n();
 
@@ -164,7 +165,7 @@ async function launchQuick() {
             <span class="quick-launch-version">{{ quickInstance.version }}</span>
           </div>
           <button class="quick-launch-btn" :disabled="quickLaunching" @click="launchQuick">
-            <Rocket :size="16" />
+            <VIcon :size="16"><Rocket24Regular /></VIcon>
             <span>{{ quickLaunching ? "启动中..." : "启动" }}</span>
           </button>
         </div>

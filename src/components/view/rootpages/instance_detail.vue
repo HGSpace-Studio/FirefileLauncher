@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
-import { ArrowLeft, Gamepad2, Play, Square, LoaderCircle, Bolt, LayoutGrid, Settings, Zap, Puzzle, Terminal, SlidersHorizontal, Save } from "@lucide/vue";
+import { Icon as VIcon } from "@vicons/utils";
+import { ArrowLeft24Regular, Games24Regular, Play24Regular, Square24Regular, ArrowClockwise24Regular, Flash24Regular, Grid24Regular, Settings24Regular, PuzzlePiece24Regular, WindowConsole20Regular, Options24Regular, Save24Regular } from "@vicons/fluent";
 import { invoke } from "@tauri-apps/api/core";
 import { addTask, updateTask, getTask, registerLaunchListeners } from "../../../stores/taskStore";
 import { currentInstanceName, currentLaunchFn, currentStopFn } from "../../../stores/instanceLaunch";
@@ -260,11 +261,11 @@ async function saveSettings() {
   <div class="detail-page">
     <div class="detail-header">
       <button class="detail-back" @click="emit('back')">
-        <ArrowLeft :size="20" />
+        <VIcon :size="20"><ArrowLeft24Regular /></VIcon>
       </button>
       <div class="detail-icon-area">
         <img v-if="instance.icon" :src="instance.icon" class="detail-icon" />
-        <Gamepad2 v-else :size="40" class="detail-icon-placeholder" />
+        <VIcon v-else :size="40" class="detail-icon-placeholder"><Games24Regular /></VIcon>
       </div>
       <div class="detail-meta">
         <span class="detail-loader">{{ loaderLabel }}</span>
@@ -276,7 +277,7 @@ async function saveSettings() {
           :class="{ active: activeTab === 'launch' }"
           @click="activeTab = 'launch'"
         >
-          <Play :size="16" />
+          <VIcon :size="16"><Play24Regular /></VIcon>
           <span>启动</span>
         </button>
         <button
@@ -284,7 +285,7 @@ async function saveSettings() {
           :class="{ active: activeTab === 'settings' }"
           @click="activeTab = 'settings'"
         >
-          <Bolt :size="16" />
+          <VIcon :size="16"><Flash24Regular /></VIcon>
           <span>设置</span>
         </button>
         <button
@@ -292,7 +293,7 @@ async function saveSettings() {
           :class="{ active: activeTab === 'resources' }"
           @click="activeTab = 'resources'"
         >
-          <LayoutGrid :size="16" />
+          <VIcon :size="16"><Grid24Regular /></VIcon>
           <span>安装的资源</span>
         </button>
       </div>
@@ -304,23 +305,23 @@ async function saveSettings() {
         <div class="set-layout">
           <div class="set-sidebar">
             <button class="set-nav-item" :class="{ active: settingsTab === 'general' }" @click="settingsTab = 'general'">
-              <Settings :size="16" />
+              <VIcon :size="16"><Settings24Regular /></VIcon>
               <span>常规</span>
             </button>
             <button class="set-nav-item" :class="{ active: settingsTab === 'quicklaunch' }" @click="settingsTab = 'quicklaunch'">
-              <Zap :size="16" />
+              <VIcon :size="16"><Flash24Regular /></VIcon>
               <span>快速启动</span>
             </button>
             <button class="set-nav-item" :class="{ active: settingsTab === 'extensions' }" @click="settingsTab = 'extensions'">
-              <Puzzle :size="16" />
+              <VIcon :size="16"><PuzzlePiece24Regular /></VIcon>
               <span>可选扩展</span>
             </button>
             <button class="set-nav-item" :class="{ active: settingsTab === 'java' }" @click="settingsTab = 'java'">
-              <Terminal :size="16" />
+              <VIcon :size="16"><WindowConsole20Regular /></VIcon>
               <span>Java 与运行</span>
             </button>
             <button class="set-nav-item" :class="{ active: settingsTab === 'other' }" @click="settingsTab = 'other'">
-              <SlidersHorizontal :size="16" />
+              <VIcon :size="16"><Options24Regular /></VIcon>
               <span>其他</span>
             </button>
           </div>
@@ -477,7 +478,7 @@ async function saveSettings() {
             </div>
             <div class="set-footer">
               <button class="set-save-btn" @click="saveSettings">
-                <Save :size="15" />
+                <VIcon :size="15"><Save24Regular /></VIcon>
                 <span>保存设置</span>
               </button>
               <span v-if="saveMsg" class="set-save-msg">{{ saveMsg }}</span>
@@ -490,8 +491,8 @@ async function saveSettings() {
     </div>
     <div v-if="activeTab === 'launch'" class="tab-footer">
       <div v-if="launchState === 'launching' || launchState === 'running'" class="launch-status">
-        <LoaderCircle v-if="launchState === 'launching'" :size="16" class="spin" />
-        <Square v-else :size="16" />
+        <VIcon v-if="launchState === 'launching'" :size="16"><ArrowClockwise24Regular class="spin" /></VIcon>
+        <VIcon v-else :size="16"><Square24Regular /></VIcon>
         <span>{{ launchLabel }}</span>
         <div v-if="launchState === 'launching'" class="launch-bar">
           <div class="launch-bar-fill" :style="{ width: (launchProgress * 100) + '%' }"></div>
@@ -732,7 +733,7 @@ async function saveSettings() {
 }
 
 .set-input:focus {
-  border-color: #0078d4;
+  border-color: var(--title-color);
 }
 
 .set-input.narrow {
@@ -761,7 +762,7 @@ async function saveSettings() {
 }
 
 .set-textarea:focus {
-  border-color: #0078d4;
+  border-color: var(--title-color);
 }
 
 .set-toggle {
@@ -903,7 +904,7 @@ async function saveSettings() {
 }
 
 .set-combobox:focus {
-  border-color: #0078d4;
+  border-color: var(--title-color);
 }
 
 /* ---- Memory bar ---- */

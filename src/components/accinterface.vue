@@ -1,12 +1,17 @@
 <script setup lang="ts">
-import { User, Plus, X, Ellipsis, Trash2, Pencil, Palette, LoaderCircle } from "@lucide/vue";
+import { Icon as VIcon } from "@vicons/utils";
+import {
+  Person24Regular, Add24Regular, Dismiss24Regular, Delete24Regular, Edit24Regular,
+  Color24Regular, ArrowClockwise24Regular, Cloud24Regular, Person24Filled,
+} from "@vicons/fluent";
 import steveAvatar from "../assets/imgs/skins/avator/steve.png";
 import alexAvatar from "../assets/imgs/skins/avator/alex.png";
 
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl as openExternalUrl } from "@tauri-apps/plugin-opener";
 
+// ── Types ──
 interface AccountEntry {
   name: string;
   type: string;
@@ -16,14 +21,30 @@ interface AccountEntry {
   xuid?: string | null;
 }
 
+interface AuthServerEntry {
+  url: string;
+  name: string;
+}
+
+// ── State ──
 const accounts = ref<AccountEntry[]>([]);
-const showDialog = ref(false);
-const dialogTab = ref(0);
-const dialogTabs = ["离线", "微软账户", "第三方登录"];
+const authServers = ref<AuthServerEntry[]>([]);
+const currentAccountName = ref("");
+
+const showAddOffline = ref(false);
+const showMsAuth = ref(false);
+const showAddServer = ref(false);
 const offlineNameInput = ref("");
 const avatars = [steveAvatar, alexAvatar];
 const currentAvatar = ref(avatars[0]);
+const addServerUrl = ref("");
+const addServerLoading = ref(false);
+const addServerError = ref("");
 
+// ── Computed ──
+const currentAccountCount = computed(() => accounts.value.length);
+
+// ── Helpers ──
 function getAvatar(name: string): string {
   const hash = name ? name.charCodeAt(0) % avatars.length : 0;
   return avatars[hash];
@@ -38,6 +59,26 @@ function getTypeLabel(type: string): string {
   return typeLabels[type] || type;
 }
 
+// ── Load Data ──
+async function loadCurrentAccount() {
+  try {
+    const a = await invoke<{ name: string }>("get_current_account");
+    currentAccountName.value = a.name;
+  } catch {
+    currentAccountName.value = "";
+  }
+}
+
+async function selectAccount(name: string, type: string) {
+  try {
+    await invoke("set_current_account", { name, accountType: type });
+    currentAccountName.value = name;
+    window.dispatchEvent(new CustomEvent("account-changed"));
+  } catch {
+    // ignore
+  }
+}
+
 async function loadAccounts() {
   try {
     accounts.value = await invoke<AccountEntry[]>("get_accounts");
@@ -46,15 +87,27 @@ async function loadAccounts() {
   }
 }
 
-function onAvatarInput() {
-  currentAvatar.value = avatars[Math.floor(Math.random() * avatars.length)];
+function selectMicrosoft() {
+  openMsAuth();
 }
 
-function openNewAccountDialog() {
-  dialogTab.value = 0;
+function selectOffline() {
+  openAddOffline();
+}
+
+async function loadAuthServers() {
+  try {
+    authServers.value = await invoke<AuthServerEntry[]>("get_auth_servers");
+  } catch {
+    authServers.value = [];
+  }
+}
+
+// ── Offline Account ──
+function openAddOffline() {
   offlineNameInput.value = "";
   currentAvatar.value = avatars[Math.floor(Math.random() * avatars.length)];
-  showDialog.value = true;
+  showAddOffline.value = true;
 }
 
 async function confirmOfflineAccount() {
@@ -70,10 +123,14 @@ async function confirmOfflineAccount() {
       xuid: null,
     });
     window.dispatchEvent(new CustomEvent("account-changed"));
-    showDialog.value = false;
+    showAddOffline.value = false;
   } catch {
     // ignore
   }
+}
+
+function onOfflineInput() {
+  currentAvatar.value = avatars[Math.floor(Math.random() * avatars.length)];
 }
 
 async function removeAccount(name: string) {
@@ -112,6 +169,15 @@ const msPollTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const msPollProgress = ref(0)
 const msError = ref("")
 
+function openMsAuth() {
+  msDeviceCode.value = null;
+  msLoading.value = false;
+  msPollProgress.value = 0;
+  msError.value = "";
+  if (msPollTimer.value) clearTimeout(msPollTimer.value);
+  showMsAuth.value = true;
+}
+
 async function startMsLogin() {
   msError.value = ""
   msLoading.value = true
@@ -146,11 +212,10 @@ async function pollMsAuth(code: DeviceCodeResponse) {
       })
       window.dispatchEvent(new CustomEvent("account-changed"))
       accounts.value = await invoke<AccountEntry[]>("get_accounts")
-      showDialog.value = false
+      showMsAuth.value = false
       msDeviceCode.value = null
       return
     } else if (result.status === "pending") {
-      // continue below to poll again
     } else {
       alert("Microsoft 登录出错: " + (result as any).reason)
       return
@@ -159,8 +224,6 @@ async function pollMsAuth(code: DeviceCodeResponse) {
     console.error("poll invoke failed:", e)
     return
   }
-
-  // poll again after interval
   const progress = Math.min(msPollProgress.value + 3, 95)
   msPollProgress.value = progress
   const delay = (code.interval || 5) * 1000
@@ -180,7 +243,54 @@ function openMsUrl(url: string) {
   openExternalUrl(url)
 }
 
-onMounted(loadAccounts)
+function closeMsAuth() {
+  cancelMsLogin();
+  showMsAuth.value = false;
+}
+
+// ── Auth Server ──
+async function confirmAddServer() {
+  const url = addServerUrl.value.trim();
+  if (!url) return;
+  addServerLoading.value = true;
+  addServerError.value = "";
+  try {
+    await invoke<AuthServerEntry>("add_auth_server", { url });
+    authServers.value = await invoke<AuthServerEntry[]>("get_auth_servers");
+    showAddServer.value = false;
+    addServerUrl.value = "";
+  } catch (e: any) {
+    addServerError.value = typeof e === 'string' ? e : (e?.toString() || "添加失败");
+  } finally {
+    addServerLoading.value = false;
+  }
+}
+
+async function removeAuthServer(url: string) {
+  try {
+    authServers.value = await invoke<AuthServerEntry[]>("remove_auth_server", { url });
+  } catch {
+    // ignore
+  }
+}
+
+function closeAddServer() {
+  showAddServer.value = false;
+  addServerUrl.value = "";
+  addServerError.value = "";
+  addServerLoading.value = false;
+}
+
+// ── Lifecycle ──
+onMounted(() => {
+  loadAccounts();
+  loadAuthServers();
+  loadCurrentAccount();
+});
+
+const emit = defineEmits<{
+  (e: "close"): void;
+}>();
 
 onUnmounted(() => {
   if (msPollTimer.value) clearTimeout(msPollTimer.value)
@@ -188,89 +298,184 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="acc-page">
-    <div class="acc-header">
-      <span class="acc-header-sub">账号</span>
-      <div class="acc-header-row">
-        <span class="acc-header-main">我的账号</span>
-        <button class="acc-add-btn" @click="openNewAccountDialog">
-          <Plus :size="16" />
-          <span>新建账户</span>
+  <div class="acc-overlay" @click.self="emit('close')">
+    <div class="acc-window">
+      <div class="acc-header-bar">
+        <div class="acc-header-left">
+          <span class="acc-header-icon"><VIcon :size="16"><Person24Regular /></VIcon></span>
+          <span class="acc-header-title">管理账号</span>
+        </div>
+        <button class="acc-close-btn" @click="emit('close')">
+          <VIcon :size="18"><Dismiss24Regular /></VIcon>
         </button>
       </div>
-    </div>
-    <div class="acc-area">
-      <div v-if="accounts.length === 0" class="acc-empty">
-        <User :size="56" class="acc-empty-icon" />
-        <span class="acc-empty-text">暂无账户信息</span>
-      </div>
-      <div v-else class="acc-list">
-        <div v-for="acc in accounts" :key="acc.name" class="acc-card">
-          <img :src="getAvatar(acc.name)" class="acc-card-avatar" />
-          <div class="acc-card-body">
-            <span class="acc-card-name">{{ acc.name }}</span>
-            <span class="acc-card-type">{{ getTypeLabel(acc.type) }}</span>
+      <div class="acc-divider"></div>
+      <div class="acc-layout">
+        <!-- Sidebar -->
+        <div class="acc-sidebar">
+          <div class="acc-sidebar-list">
+            <div class="acc-sidebar-hint">选择以下方式创建对应账户名</div>
+            <div class="acc-sidebar-item" @click="selectMicrosoft">
+              <span class="acc-sidebar-icon"><VIcon :size="16"><Person24Filled /></VIcon></span>
+              <span class="acc-sidebar-label">正版账号</span>
+            </div>
+            <div class="acc-sidebar-item" @click="selectOffline">
+              <span class="acc-sidebar-icon"><VIcon :size="16"><Person24Regular /></VIcon></span>
+              <span class="acc-sidebar-label">离线账户</span>
+            </div>
+
+            <div v-if="authServers.length > 0" class="acc-sidebar-divider"></div>
+            <div v-for="s in authServers" :key="s.url" class="acc-sidebar-item">
+              <span class="acc-sidebar-icon"><VIcon :size="16"><Cloud24Regular /></VIcon></span>
+              <span class="acc-sidebar-label">{{ s.name }}</span>
+              <button class="acc-sidebar-remove" @click.stop="removeAuthServer(s.url)" title="删除">
+                <VIcon :size="12"><Dismiss24Regular /></VIcon>
+              </button>
+            </div>
           </div>
-          <div class="acc-card-actions">
-            <button class="acc-action-btn" title="编辑">
-              <Pencil :size="16" />
+          <div class="acc-sidebar-footer">
+            <button class="acc-add-server-btn" @click="showAddServer = true">
+              <VIcon :size="14"><Add24Regular /></VIcon>
+              <span>新增认证服务器</span>
             </button>
-            <button class="acc-action-btn" title="皮肤">
-              <Palette :size="16" />
-            </button>
-            <button class="acc-action-btn danger" title="删除" @click="removeAccount(acc.name)">
-              <Trash2 :size="16" />
-            </button>
+          </div>
+        </div>
+
+        <div class="acc-divider-v"></div>
+
+        <!-- Content -->
+        <div class="acc-content">
+          <div class="acc-content-header">
+            <span class="acc-content-title">我的账号 <span class="acc-content-count">{{ currentAccountCount }}</span></span>
+          </div>
+
+          <div class="acc-content-body">
+            <div v-if="accounts.length === 0" class="acc-empty">
+              <VIcon :size="48" class="acc-empty-icon"><Person24Regular /></VIcon>
+              <span class="acc-empty-text">暂无账号</span>
+            </div>
+            <div v-else class="acc-list">
+              <div v-for="acc in accounts" :key="acc.name" class="acc-card">
+                <button
+                  class="acc-radio"
+                  :class="{ checked: currentAccountName === acc.name }"
+                  @click="selectAccount(acc.name, acc.type)"
+                >
+                  <span class="acc-radio-dot"></span>
+                </button>
+                <img :src="getAvatar(acc.name)" class="acc-card-avatar" />
+                <div class="acc-card-body">
+                  <span class="acc-card-name">{{ acc.name }}</span>
+                  <span class="acc-card-type">{{ getTypeLabel(acc.type) }}</span>
+                </div>
+                <div class="acc-card-actions">
+                  <button class="acc-action-btn" title="编辑">
+                    <VIcon :size="16"><Edit24Regular /></VIcon>
+                  </button>
+                  <button class="acc-action-btn" title="皮肤">
+                    <VIcon :size="16"><Color24Regular /></VIcon>
+                  </button>
+                  <button class="acc-action-btn danger" title="删除" @click="removeAccount(acc.name)">
+                    <VIcon :size="16"><Delete24Regular /></VIcon>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
+    <!-- Add Auth Server Dialog -->
     <Teleport to="body">
-      <div v-if="showDialog" class="dialog-overlay" @click.self="showDialog = false">
+      <div v-if="showAddServer" class="dialog-overlay" @click.self="closeAddServer">
         <div class="dialog-box">
           <div class="dialog-header">
-            <span class="dialog-title">新建账户</span>
-            <button class="dialog-close-btn" @click="showDialog = false">
-              <X :size="18" />
+            <span class="dialog-title">新增认证服务器</span>
+            <button class="dialog-close-btn" @click="closeAddServer">
+              <VIcon :size="18"><Dismiss24Regular /></VIcon>
             </button>
           </div>
-          <div class="dialog-tabs">
-            <button
-              v-for="(tab, i) in dialogTabs"
-              :key="i"
-              class="dialog-tab"
-              :class="{ active: dialogTab === i, disabled: i === 2 }"
-              @click="dialogTab = i"
-            >{{ tab }}</button>
+          <div class="dialog-body">
+            <div class="authserver-form">
+              <span class="authserver-label">第三方认证服务器地址</span>
+              <input
+                v-model="addServerUrl"
+                class="authserver-input"
+                placeholder="https://yourlink/api/yggdrasil"
+                @keyup.enter="confirmAddServer"
+              />
+              <span v-if="addServerError" class="authserver-error">{{ addServerError }}</span>
+              <div class="authserver-footer">
+                <button
+                  class="authserver-next-btn"
+                  :disabled="!addServerUrl.trim() || addServerLoading"
+                  @click="confirmAddServer"
+                >
+                  {{ addServerLoading ? '请稍候...' : '创建下一步' }}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Add Offline Account Dialog -->
+    <Teleport to="body">
+      <div v-if="showAddOffline" class="dialog-overlay" @click.self="showAddOffline = false">
+        <div class="dialog-box" style="width:480px">
+          <div class="dialog-header">
+            <span class="dialog-title">添加离线账户</span>
+            <button class="dialog-close-btn" @click="showAddOffline = false">
+              <VIcon :size="18"><Dismiss24Regular /></VIcon>
+            </button>
           </div>
           <div class="dialog-body">
-            <div v-if="dialogTab === 0" class="dialog-offline">
-              <div class="dialog-avatar-wrap">
-                <img :src="currentAvatar" class="dialog-avatar" />
+            <div class="offline-row">
+              <div class="offline-avatar-wrap">
+                <img :src="currentAvatar" class="offline-avatar" />
               </div>
-              <span class="dialog-offline-label">输入您的玩家名称</span>
-              <div class="dialog-input-wrap">
+              <div class="offline-input-area">
+                <span class="offline-label">输入您的玩家名称</span>
                 <input
                   v-model="offlineNameInput"
-                  class="dialog-input"
+                  class="offline-input"
                   placeholder="Steve"
                   maxlength="16"
-                  @input="onAvatarInput"
+                  @input="onOfflineInput"
                   @keyup.enter="confirmOfflineAccount"
                 />
               </div>
+            </div>
+            <div class="offline-footer">
               <button
-                class="dialog-confirm-btn"
+                class="offline-confirm-btn"
                 :disabled="!offlineNameInput.trim()"
                 @click="confirmOfflineAccount"
               >确认</button>
             </div>
-            <div v-else-if="dialogTab === 1" class="dialog-microsoft">
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Microsoft Auth Dialog -->
+    <Teleport to="body">
+      <div v-if="showMsAuth" class="dialog-overlay" @click.self="closeMsAuth">
+        <div class="dialog-box">
+          <div class="dialog-header">
+            <span class="dialog-title">添加微软账户</span>
+            <button class="dialog-close-btn" @click="closeMsAuth">
+              <VIcon :size="18"><Dismiss24Regular /></VIcon>
+            </button>
+          </div>
+          <div class="dialog-body">
+            <div class="dialog-microsoft">
               <div v-if="!msDeviceCode" class="ms-start">
                 <span class="ms-desc">使用 Microsoft 账户登录以获取您的 Minecraft Java 角色</span>
                 <button class="ms-login-btn" :disabled="msLoading" @click="startMsLogin">
-                  <LoaderCircle v-if="msLoading" :size="16" class="spin" />
+                  <VIcon :size="16"><ArrowClockwise24Regular v-if="msLoading" class="spin" /></VIcon>
                   <span>{{ msLoading ? '请稍候...' : '登录微软账户' }}</span>
                 </button>
                 <span v-if="msError" class="ms-error">{{ msError }}</span>
@@ -284,10 +489,6 @@ onUnmounted(() => {
                 <button class="ms-cancel-btn" @click="cancelMsLogin">取消</button>
               </div>
             </div>
-            <div v-else class="dialog-placeholder">
-              <Ellipsis :size="32" class="placeholder-icon" />
-              <span>第三方登录暂未开放</span>
-            </div>
           </div>
         </div>
       </div>
@@ -296,48 +497,253 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.acc-page {
-  width: 100%;
-  height: 100%;
+.acc-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.35);
+}
+
+.acc-window {
   display: flex;
   flex-direction: column;
-  padding: 24px 0 80px;
-  overflow-y: auto;
+  width: 700px;
+  height: 520px;
+  background: var(--content-bg);
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.25);
+  overflow: hidden;
 }
 
-.acc-page > * {
-  padding-left: 28px;
-  padding-right: 28px;
-}
-
-.acc-header {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.acc-header-sub {
-  font-size: 11px;
-  color: var(--title-color);
-  opacity: 0.45;
-  line-height: 1;
-}
-
-.acc-header-row {
+.acc-header-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  padding: 14px 18px;
+  flex-shrink: 0;
 }
 
-.acc-header-main {
-  font-size: 18px;
+.acc-header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.acc-header-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--settings-icon-bg);
+  color: #fff;
+}
+
+.acc-header-title {
+  font-size: 15px;
   font-weight: 600;
   color: var(--title-color);
-  line-height: 1.2;
 }
 
-.acc-add-btn {
+.acc-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--title-color);
+  opacity: 0.5;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.acc-close-btn:hover {
+  background: rgba(128,128,128,0.12);
+  opacity: 1;
+}
+
+.acc-divider {
+  height: 1px;
+  background: rgba(128,128,128,0.15);
+  flex-shrink: 0;
+}
+
+/* ── Layout ── */
+.acc-layout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.acc-divider-v {
+  width: 1px;
+  background: rgba(128,128,128,0.12);
+  flex-shrink: 0;
+}
+
+/* ── Sidebar ── */
+.acc-sidebar {
+  width: 210px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  padding: 12px 0;
+  background: rgba(128,128,128,0.03);
+}
+
+.acc-sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.acc-sidebar-hint {
+  font-size: 11px;
+  color: var(--title-color);
+  opacity: 0.4;
+  padding: 0 12px 12px;
+  line-height: 1.4;
+}
+
+.acc-sidebar-divider {
+  height: 1px;
+  background: rgba(128,128,128,0.12);
+  margin: 8px 12px;
+}
+
+.acc-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s;
+  color: var(--title-color);
+  font-size: 13px;
+}
+
+.acc-sidebar-item:hover {
+  background: rgba(128,128,128,0.08);
+}
+
+.acc-sidebar-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.acc-sidebar-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.acc-sidebar-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--title-color);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+.acc-sidebar-item:hover .acc-sidebar-remove {
+  opacity: 0.4;
+}
+
+.acc-sidebar-remove:hover {
+  background: rgba(231, 76, 60, 0.2);
+  color: #e74c3c;
+  opacity: 1 !important;
+}
+
+.acc-sidebar-footer {
+  padding: 8px;
+  flex-shrink: 0;
+}
+
+.acc-add-server-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px dashed rgba(128,128,128,0.25);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--title-color);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  opacity: 0.6;
+}
+
+.acc-add-server-btn:hover {
+  background: rgba(128,128,128,0.06);
+  border-color: rgba(128,128,128,0.4);
+  opacity: 1;
+}
+
+/* ── Content ── */
+.acc-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 20px 24px;
+}
+
+.acc-content-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.acc-content-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--title-color);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.acc-content-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--title-color);
+  opacity: 0.4;
+  line-height: 1;
+}
+
+.acc-content-add-btn {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -353,23 +759,24 @@ onUnmounted(() => {
   font-family: inherit;
 }
 
-.acc-add-btn:hover {
+.acc-content-add-btn:hover {
   opacity: 0.85;
 }
 
-.acc-area {
+.acc-content-body {
   flex: 1;
-  margin-top: 20px;
+  overflow-y: auto;
   min-height: 0;
 }
 
+/* ── Empty State ── */
 .acc-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  height: 100%;
+  height: 200px;
   color: var(--title-color);
   opacity: 0.4;
 }
@@ -382,6 +789,7 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
+/* ── Account Cards ── */
 .acc-list {
   display: flex;
   flex-direction: column;
@@ -396,6 +804,43 @@ onUnmounted(() => {
   border-radius: 12px;
   background: var(--panel-bg);
   transition: background 0.15s;
+}
+
+.acc-radio {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(128,128,128,0.3);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  flex-shrink: 0;
+  padding: 0;
+  transition: border-color 0.15s;
+}
+
+.acc-radio:hover {
+  border-color: rgba(128,128,128,0.6);
+}
+
+.acc-radio.checked {
+  border-color: #00BAAD;
+}
+
+.acc-radio-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background 0.15s, transform 0.15s;
+  transform: scale(0);
+}
+
+.acc-radio.checked .acc-radio-dot {
+  background: #00BAAD;
+  transform: scale(1);
 }
 
 .acc-card:hover {
@@ -464,6 +909,7 @@ onUnmounted(() => {
   opacity: 1;
 }
 
+/* ── Dialogs ── */
 .dialog-overlay {
   position: fixed;
   inset: 0;
@@ -514,85 +960,24 @@ onUnmounted(() => {
   background: rgba(128, 128, 128, 0.15);
 }
 
-.dialog-tabs {
-  display: flex;
-  gap: 4px;
-  margin: 14px 20px 0;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(128, 128, 128, 0.15);
-}
-
-.dialog-tab {
-  flex: 1;
-  padding: 8px 0;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--title-color);
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background 0.15s;
-  opacity: 0.6;
-}
-
-.dialog-tab:hover:not(.disabled) {
-  background: rgba(128, 128, 128, 0.08);
-  opacity: 0.8;
-}
-
-.dialog-tab.active {
-  background: var(--sidebar-active-color);
-  color: #fff;
-  opacity: 1;
-}
-
-.dialog-tab.disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
 .dialog-body {
   padding: 20px;
 }
 
-.dialog-offline {
+/* ── Auth Server Form ── */
+.authserver-form {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 14px;
+  gap: 12px;
 }
 
-.dialog-avatar-wrap {
-  width: 56px;
-  height: 56px;
-  border-radius: 12px;
-  overflow: hidden;
-  background: rgba(128, 128, 128, 0.1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.dialog-avatar {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  image-rendering: pixelated;
-}
-
-.dialog-offline-label {
+.authserver-label {
   font-size: 13px;
   color: var(--title-color);
   opacity: 0.7;
 }
 
-.dialog-input-wrap {
-  width: 100%;
-}
-
-.dialog-input {
+.authserver-input {
   width: 100%;
   padding: 10px 14px;
   border: 1px solid rgba(128, 128, 128, 0.2);
@@ -602,52 +987,131 @@ onUnmounted(() => {
   font-size: 14px;
   font-family: inherit;
   outline: none;
-  text-align: center;
   transition: border-color 0.15s;
 }
 
-.dialog-input:focus {
-  border-color: var(--sidebar-active-color);
+.authserver-input:focus {
+  border-color: var(--title-color);
 }
 
-.dialog-confirm-btn {
-  width: 100%;
-  padding: 10px;
+.authserver-error {
+  font-size: 12px;
+  color: #e74c3c;
+  line-height: 1.4;
+}
+
+.authserver-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.authserver-next-btn {
+  padding: 9px 24px;
   border: none;
-  border-radius: 8px;
-  background: var(--sidebar-active-color);
-  color: #fff;
+  border-radius: 100px;
+  background: #00ED5F;
+  color: var(--title-color);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 600;
   font-family: inherit;
   cursor: pointer;
   transition: opacity 0.15s;
 }
 
-.dialog-confirm-btn:hover:not(:disabled) {
+.authserver-next-btn:hover:not(:disabled) {
   opacity: 0.85;
 }
 
-.dialog-confirm-btn:disabled {
+.authserver-next-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
-.dialog-placeholder {
+/* ── Offline Dialog ── */
+.offline-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.offline-avatar-wrap {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(128, 128, 128, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.offline-avatar {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  image-rendering: pixelated;
+}
+
+.offline-input-area {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  padding: 32px 0;
+  gap: 6px;
+}
+
+.offline-label {
+  font-size: 13px;
   color: var(--title-color);
-  opacity: 0.4;
+  opacity: 0.7;
+}
+
+.offline-input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid rgba(128, 128, 128, 0.2);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.1);
+  color: var(--title-color);
   font-size: 14px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
 }
 
-.placeholder-icon {
-  opacity: 0.5;
+.offline-input:focus {
+  border-color: var(--title-color);
 }
 
+.offline-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.offline-confirm-btn {
+  padding: 9px 24px;
+  border: none;
+  border-radius: 100px;
+  background: #00ED5F;
+  color: var(--title-color);
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.offline-confirm-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.offline-confirm-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Microsoft Auth Dialog ── */
 .dialog-microsoft {
   display: flex;
   flex-direction: column;

@@ -3,7 +3,8 @@ import { ref, watch, onMounted, onUnmounted, computed, reactive } from "vue";
 import { useI18n } from "vue-i18n";
 import { getSystemLocale } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
-import { Settings, Languages, Palette, Info, GitPullRequestArrow, X, Coffee, LoaderCircle, ChevronDown, Upload } from "@lucide/vue";
+import { Icon as VIcon } from "@vicons/utils";
+import { Settings24Regular, Globe24Regular, Color24Regular, Info24Regular, ArrowSync24Regular, Dismiss24Regular, DrinkCoffee24Regular, ArrowClockwise24Regular, ChevronDown24Regular, ArrowUpload24Regular, Table24Regular, Document24Regular } from "@vicons/fluent";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import logo from "../assets/logos/logo.png";
@@ -118,6 +119,10 @@ watch(currentTheme, (val) => {
 });
 
 const activeSetting = ref("appearance");
+const useFullscreenUI = ref(localStorage.getItem("firefile-ui-layout") === "fullscreen");
+watch(useFullscreenUI, (val) => {
+  localStorage.setItem("firefile-ui-layout", val ? "fullscreen" : "sidebar");
+});
 
 const DEFAULT_FONT = "__system_default__";
 const availableFonts = ref<string[]>([DEFAULT_FONT]);
@@ -241,12 +246,12 @@ onUnmounted(() => {
       <div class="settings-header">
         <div class="settings-header-left">
           <span class="settings-icon-wrap">
-            <Settings :size="16" class="settings-icon" />
+            <VIcon :size="16" class="settings-icon"><Settings24Regular /></VIcon>
           </span>
           <span class="settings-title">{{ t("app.mainwindow.settings.title") }}</span>
         </div>
         <button class="settings-close" @click="emit('close')">
-          <X :size="18" />
+          <VIcon :size="18"><Dismiss24Regular /></VIcon>
         </button>
       </div>
       <div class="settings-divider"></div>
@@ -257,7 +262,7 @@ onUnmounted(() => {
             :class="{ active: activeSetting === 'java-runtime' }"
             @click="activeSetting = 'java-runtime'"
           >
-            <Coffee :size="18" />
+            <VIcon :size="18"><DrinkCoffee24Regular /></VIcon>
             <span>{{ t("app.mainwindow.settings.java-runtime") }}</span>
           </button>
           <div class="settings-nav-divider"></div>
@@ -266,15 +271,23 @@ onUnmounted(() => {
             :class="{ active: activeSetting === 'appearance' }"
             @click="activeSetting = 'appearance'"
           >
-            <Palette :size="18" />
+            <VIcon :size="18"><Color24Regular /></VIcon>
             <span>{{ t("app.mainwindow.settings.appearance") }}</span>
+          </button>
+          <button
+            class="settings-nav-item"
+            :class="{ active: activeSetting === 'ui-layout' }"
+            @click="activeSetting = 'ui-layout'"
+          >
+            <VIcon :size="18"><Table24Regular /></VIcon>
+            <span>UI 布局</span>
           </button>
           <button
             class="settings-nav-item"
             :class="{ active: activeSetting === 'language' }"
             @click="activeSetting = 'language'"
           >
-            <Languages :size="18" />
+            <VIcon :size="18"><Globe24Regular /></VIcon>
             <span>{{ t("app.mainwindow.settings.language") }}</span>
           </button>
           <button
@@ -282,7 +295,7 @@ onUnmounted(() => {
             :class="{ active: activeSetting === 'about' }"
             @click="activeSetting = 'about'"
           >
-            <Info :size="18" />
+            <VIcon :size="18"><Info24Regular /></VIcon>
             <span>{{ t("app.mainwindow.settings.about") }}</span>
           </button>
         </nav>
@@ -296,10 +309,10 @@ onUnmounted(() => {
                 </div>
                 <div class="expander-right">
                   <button class="refresh-btn" @click.stop="fetchJavaVersions" :disabled="javaLoading">
-                    <LoaderCircle v-if="javaLoading" :size="14" class="spinner" />
-                    <span v-else>刷新</span>
+                      <VIcon v-if="javaLoading" :size="14"><ArrowClockwise24Regular class="spinner" /></VIcon>
+                      <span v-else>刷新</span>
                   </button>
-                  <ChevronDown :size="18" class="expander-chevron" :class="{ expanded: javaExpanded }" />
+                  <VIcon :size="18" class="expander-chevron" :class="{ expanded: javaExpanded }"><ChevronDown24Regular /></VIcon>
                 </div>
               </div>
               <Transition name="expander">
@@ -415,7 +428,7 @@ onUnmounted(() => {
                   <span class="bg-name">{{ cbg.name }}</span>
                 </div>
                 <div class="bg-card upload-card" @click="uploadBg">
-                  <div class="bg-preview"><Upload :size="24" /></div>
+                  <div class="bg-preview">                  <VIcon :size="24"><ArrowUpload24Regular /></VIcon></div>
                   <span class="bg-name">上传</span>
                 </div>
               </div>
@@ -428,6 +441,25 @@ onUnmounted(() => {
               <div class="blur-control">
                 <input type="range" v-model.number="bgBlur" min="0" max="20" step="1" class="blur-slider" />
                 <span class="blur-value">{{ bgBlur }}px</span>
+              </div>
+            </div>
+          </div>
+          <div v-if="activeSetting === 'ui-layout'" class="setting-panel">
+            <div class="setting-card">
+              <div class="setting-card-info">
+                <label class="setting-label">UI 布局</label>
+                <span class="setting-desc">选择要使用的界面布局</span>
+              </div>
+              <div class="ui-layout-options">
+                <label class="switch">
+                  <input type="checkbox" v-model="useFullscreenUI" />
+                  <span class="switch-slider"></span>
+                </label>
+                <div class="ui-layout-texts">
+                  <span class="ui-layout-option" :class="{ active: !useFullscreenUI }">传统 UI（侧边导航栏 UI）</span>
+                  <span class="ui-layout-option" :class="{ active: useFullscreenUI }">大屏幕 UI</span>
+                  <span v-if="useFullscreenUI" class="ui-layout-hint">此 UI 将会在启动全屏模式后自动切换</span>
+                </div>
               </div>
             </div>
           </div>
@@ -467,12 +499,16 @@ onUnmounted(() => {
                 </div>
               </div>
               <button class="about-link-btn" @click="openUrl('https://github.com/HGSpace-Studio/Firefly-Launcher')">
-                <GitPullRequestArrow :size="16" />
+                <VIcon :size="16"><ArrowSync24Regular /></VIcon>
                 <span>GitHub</span>
               </button>
             </div>
-            <div class="setting-card about-desc-card">
-              <span class="about-desc-text">{{ t("app.mainwindow.settings.about.desc") }}</span>
+            <div class="setting-card about-license-card">
+              <span class="about-license-icon"><VIcon :size="32"><Document24Regular /></VIcon></span>
+              <div class="about-license-text">
+                <span class="about-license-sub">Copyright (c) 2026 HGSpace(Playful Team)</span>
+                <span class="about-license-main">本软件使用GNU General Public License v3.0进行开源</span>
+              </div>
             </div>
           </div>
         </div>
@@ -497,8 +533,8 @@ onUnmounted(() => {
 .settings-window {
   display: flex;
   flex-direction: column;
-  width: 680px;
-  height: 500px;
+  width: 780px;
+  height: 580px;
   background: var(--content-bg);
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
@@ -535,7 +571,7 @@ onUnmounted(() => {
 .settings-header-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
 }
 
 .settings-icon-wrap {
@@ -703,7 +739,7 @@ onUnmounted(() => {
 }
 
 .custom-select select:focus {
-  border-color: #0078d4;
+  border-color: var(--title-color);
 }
 
 .custom-select select option {
@@ -814,6 +850,35 @@ onUnmounted(() => {
   opacity: 0.5;
   padding: 0 4px;
   margin: 0;
+}
+
+.ui-layout-options {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.ui-layout-texts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ui-layout-option {
+  font-size: 13px;
+  color: var(--title-color);
+}
+
+.ui-layout-option.active {
+  color: var(--accent-color, #0078d4);
+  font-weight: 500;
+}
+
+.ui-layout-hint {
+  font-size: 11px;
+  color: var(--title-color);
+  opacity: 0.5;
+  line-height: 1.4;
 }
 
 .bg-gallery {
@@ -1213,13 +1278,6 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 
-.about-desc {
-  font-size: 11px;
-  color: var(--title-color);
-  opacity: 0.45;
-  line-height: 1.4;
-}
-
 .about-link-btn {
   display: flex;
   align-items: center;
@@ -1242,15 +1300,46 @@ onUnmounted(() => {
   background: rgba(128, 128, 128, 0.12);
 }
 
-.about-desc-card {
+.about-license-card {
   margin-top: 7px;
   padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
 }
 
-.about-desc-text {
-  font-size: 12px;
-  line-height: 1.6;
+.about-license-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: rgba(128,128,128,0.08);
   color: var(--title-color);
-  opacity: 0.55;
+  opacity: 0.6;
+  flex-shrink: 0;
+}
+
+.about-license-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin-left: -50px;
+}
+
+.about-license-sub {
+  font-size: 11px;
+  color: var(--title-color);
+  opacity: 0.45;
+  line-height: 1.3;
+}
+
+.about-license-main {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--title-color);
+  line-height: 1.3;
 }
 </style>

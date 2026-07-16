@@ -55,6 +55,7 @@ pub fn run() {
             launcher::get_minecraft_versions,
             launcher::get_fabric_versions,
             launcher::get_forge_versions,
+            launcher::get_neoforge_versions,
             launcher::get_java_versions,
             launcher::get_system_memory,
             launcher::init_oobe_environment,
@@ -67,6 +68,7 @@ pub fn run() {
             launcher::get_oobe_settings,
             launcher::get_minecraft_dir_string,
             launcher::get_current_account,
+            launcher::set_current_account,
             launcher::get_accounts,
             launcher::add_account,
             launcher::remove_account,
@@ -82,6 +84,9 @@ pub fn run() {
             launcher::read_image_file,
             launcher::start_microsoft_auth,
             launcher::poll_microsoft_auth,
+            launcher::get_auth_servers,
+            launcher::add_auth_server,
+            launcher::remove_auth_server,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

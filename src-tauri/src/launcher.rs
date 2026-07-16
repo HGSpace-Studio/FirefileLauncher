@@ -296,6 +296,30 @@ pub async fn get_forge_versions(mc_version: String) -> Result<Vec<ForgeBuild>, S
     Ok(builds)
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NeoForgeBuild {
+    pub version: String,
+    pub mcversion: String,
+    pub build: u32,
+    pub modified: String,
+}
+
+#[tauri::command]
+pub async fn get_neoforge_versions(mc_version: String) -> Result<Vec<NeoForgeBuild>, String> {
+    let url = format!(
+        "https://bmclapi2.bangbang93.com/neoforge/minecraft/{}",
+        mc_version
+    );
+    let resp = reqwest::get(&url)
+        .await
+        .map_err(|e| format!("Failed to fetch neoforge versions: {e}"))?;
+    let builds: Vec<NeoForgeBuild> = resp
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse neoforge versions: {e}"))?;
+    Ok(builds)
+}
+
 #[tauri::command]
 pub async fn get_minecraft_versions() -> Result<VersionManifest, String> {
     let url = "https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json";
@@ -675,6 +699,25 @@ pub fn get_current_account() -> Result<CurrentAccount, String> {
     })
 }
 
+#[tauri::command]
+pub fn set_current_account(name: String, account_type: String) -> Result<(), String> {
+    let path = get_settings_path();
+    let mut settings = if path.exists() {
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<OobeSettings>(&s).ok())
+            .unwrap_or_default()
+    } else {
+        OobeSettings::default()
+    };
+    settings.account_name = name;
+    settings.account_type = account_type;
+    let json = serde_json::to_string_pretty(&settings)
+        .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+    std::fs::write(&path, &json)
+        .map_err(|e| format!("Failed to write settings: {}", e))
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LoaderEntry {
     #[serde(rename = "type")]
@@ -995,6 +1038,109 @@ pub fn remove_account(name: String) -> Result<Vec<AccountEntry>, String> {
     accounts.retain(|a| a.name != name);
     write_accounts(&accounts)?;
     Ok(accounts)
+}
+
+// ── Third-party Auth Servers ──
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AuthServerEntry {
+    pub url: String,
+    pub name: String,
+}
+
+fn get_auth_servers_path() -> std::path::PathBuf {
+    get_minecraft_dir().join("auth_servers.json")
+}
+
+fn read_auth_servers() -> Vec<AuthServerEntry> {
+    let path = get_auth_servers_path();
+    if !path.exists() {
+        return Vec::new();
+    }
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn write_auth_servers(servers: &[AuthServerEntry]) -> Result<(), String> {
+    let json = serde_json::to_string_pretty(servers)
+        .map_err(|e| format!("Failed to serialize auth servers: {}", e))?;
+    std::fs::write(get_auth_servers_path(), &json)
+        .map_err(|e| format!("Failed to write auth servers: {}", e))
+}
+
+#[tauri::command]
+pub fn get_auth_servers() -> Result<Vec<AuthServerEntry>, String> {
+    Ok(read_auth_servers())
+}
+
+#[tauri::command]
+pub fn remove_auth_server(url: String) -> Result<Vec<AuthServerEntry>, String> {
+    let mut servers = read_auth_servers();
+    servers.retain(|s| s.url != url);
+    write_auth_servers(&servers)?;
+    Ok(servers)
+}
+
+fn extract_hostname(url: &str) -> String {
+    url.trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split('/')
+        .next()
+        .unwrap_or(url)
+        .to_string()
+}
+
+#[tauri::command]
+pub async fn add_auth_server(url: String) -> Result<AuthServerEntry, String> {
+    // Validate URL format
+    if !url.starts_with("http://") && !url.starts_with("https://") {
+        return Err("URL 必须以 http:// 或 https:// 开头".to_string());
+    }
+
+    let hostname = extract_hostname(&url);
+
+    // Try to fetch the API root to get server name
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
+
+    let api_url = if url.ends_with('/') {
+        format!("{}api/yggdrasil", url)
+    } else {
+        format!("{}/api/yggdrasil", url)
+    };
+
+    let server_name = match client.get(&api_url).send().await {
+        Ok(r) if r.status().is_success() => {
+            if let Ok(json) = r.json::<serde_json::Value>().await {
+                json.get("meta")
+                    .and_then(|m| m.get("serverName"))
+                    .or_else(|| json.get("serverName"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| hostname.clone())
+            } else {
+                hostname.clone()
+            }
+        }
+        _ => hostname.clone(),
+    };
+
+    let entry = AuthServerEntry {
+        url: url.clone(),
+        name: server_name,
+    };
+
+    let mut servers = read_auth_servers();
+    if servers.iter().any(|s| s.url == url) {
+        return Err("该认证服务器已存在".to_string());
+    }
+    servers.push(entry.clone());
+    write_auth_servers(&servers)?;
+    Ok(entry)
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { Box, Sparkles, LoaderCircle } from "@lucide/vue";
+import { Icon as VIcon } from "@vicons/utils";
+import { Box24Regular, Sparkle24Regular, ArrowClockwise24Regular } from "@vicons/fluent";
 import { invoke } from "@tauri-apps/api/core";
 import { getCache, setCache } from "../../../utils/cache";
 import mcIcon from "../../../assets/imgs/mc_oringin.png";
@@ -117,7 +118,7 @@ function setTab(tab: string) {
         :class="{ active: activeTab === 'release' }"
         @click="setTab('release')"
       >
-        <Box :size="18" />
+        <VIcon :size="18"><Box24Regular /></VIcon>
         <span>{{ t("app.mainwindow.versionnav.release") }}</span>
       </button>
       <button
@@ -125,7 +126,7 @@ function setTab(tab: string) {
         :class="{ active: activeTab === 'snapshot' }"
         @click="setTab('snapshot')"
       >
-        <Box :size="18" />
+        <VIcon :size="18"><Box24Regular /></VIcon>
         <span>{{ t("app.mainwindow.versionnav.snapshot") }}</span>
       </button>
       <button
@@ -133,7 +134,7 @@ function setTab(tab: string) {
         :class="{ active: activeTab === 'old' }"
         @click="setTab('old')"
       >
-        <Box :size="18" />
+        <VIcon :size="18"><Box24Regular /></VIcon>
         <span>{{ t("app.mainwindow.versionnav.old") }}</span>
       </button>
       <div class="version-nav-divider"></div>
@@ -142,13 +143,13 @@ function setTab(tab: string) {
         :class="{ active: activeTab === 'april' }"
         @click="setTab('april')"
       >
-        <Sparkles :size="18" />
+        <VIcon :size="18"><Sparkle24Regular /></VIcon>
         <span>{{ t("app.mainwindow.versionnav.april") }}</span>
       </button>
     </nav>
     <div class="version-content">
       <div v-if="loading" class="version-loading">
-        <LoaderCircle :size="20" class="spinner" />
+        <VIcon :size="20"><ArrowClockwise24Regular class="spinner" /></VIcon>
         <span>{{ t("app.mainwindow.versionnav.loading") }}</span>
       </div>
       <div v-else class="version-list">

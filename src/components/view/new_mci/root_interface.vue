@@ -2,7 +2,8 @@
 import { ref, computed, watch } from "vue";
 import { onMounted, onUnmounted } from "vue";
 import { useI18n } from "vue-i18n";
-import { PackagePlus, Package, Search, X, ChevronDown, LoaderCircle, Anvil, ArrowRight, ArrowLeft, Info } from "@lucide/vue";
+import { Icon as VIcon } from "@vicons/utils";
+import { BoxArrowUp24Regular, Box24Regular, Search24Regular, Dismiss24Regular, ChevronDown24Regular, ArrowClockwise24Regular, Toolbox24Regular, ArrowRight24Regular, ArrowLeft24Regular, Info24Regular } from "@vicons/fluent";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import fabricIcon from "../../../assets/imgs/mod_loader_imgs/fabric.png";
@@ -27,6 +28,13 @@ interface ForgeBuild {
   modified: string;
 }
 
+interface NeoForgeBuild {
+  version: string;
+  mcversion: string;
+  build: number;
+  modified: string;
+}
+
 const emit = defineEmits<{
   (e: "close"): void;
   (e: "navigate", nav: string): void;
@@ -41,11 +49,16 @@ const fabricVersions = ref<string[]>([]);
 const fabricSelectRef = ref<HTMLElement | null>(null);
 const loaderEnabled = ref(false);
 const forgeEnabled = ref(false);
+const neoforgeEnabled = ref(false);
 const forgeDropdownOpen = ref(false);
+const neoforgeDropdownOpen = ref(false);
 const selectedForgeVersion = ref("");
+const selectedNeoForgeVersion = ref("");
 const forgeVersions = ref<string[]>([]);
+const neoforgeVersions = ref<string[]>([]);
 const forgeSelectRef = ref<HTMLElement | null>(null);
-const hoveredTooltip = ref<'fabric' | 'forge' | null>(null);
+const neoforgeSelectRef = ref<HTMLElement | null>(null);
+const hoveredTooltip = ref<'fabric' | 'forge' | 'neoforge' | null>(null);
 const loadError = ref("");
 const instanceName = ref("");
 const selectedMcVersion = ref("1.21.8");
@@ -76,6 +89,8 @@ function buildInstanceName(): string {
     name += ` Fabric ${selectedFabricVersion.value}`;
   } else if (forgeEnabled.value && selectedForgeVersion.value) {
     name += ` Forge ${selectedForgeVersion.value}`;
+  } else if (neoforgeEnabled.value && selectedNeoForgeVersion.value) {
+    name += ` NeoForge ${selectedNeoForgeVersion.value}`;
   }
   return name;
 }
@@ -86,7 +101,7 @@ watch(selectedMcVersion, () => {
   }
 });
 
-watch([loaderEnabled, forgeEnabled, selectedFabricVersion, selectedForgeVersion], () => {
+watch([loaderEnabled, forgeEnabled, neoforgeEnabled, selectedFabricVersion, selectedForgeVersion, selectedNeoForgeVersion], () => {
   if (selectedMcVersion.value) {
     instanceName.value = buildInstanceName();
   }
@@ -96,16 +111,22 @@ const viewState = ref<'root' | 'mc-version'>('root');
 const searchQuery = ref('');
 
 function toggleFabric() {
-  if (forgeEnabled.value) return;
+  if (forgeEnabled.value || neoforgeEnabled.value) return;
   loaderEnabled.value = !loaderEnabled.value;
 }
 
 function toggleForge() {
-  if (loaderEnabled.value) return;
+  if (loaderEnabled.value || neoforgeEnabled.value) return;
   forgeEnabled.value = !forgeEnabled.value;
 }
 
+function toggleNeoForge() {
+  if (loaderEnabled.value || forgeEnabled.value) return;
+  neoforgeEnabled.value = !neoforgeEnabled.value;
+}
+
 const forgeLoading = ref(false);
+const neoforgeLoading = ref(false);
 
 async function fetchForgeVersions(mcVersion: string) {
   const cacheKey = "forge_versions_" + mcVersion;
@@ -131,6 +152,33 @@ async function fetchForgeVersions(mcVersion: string) {
     // keep current list
   } finally {
     forgeLoading.value = false;
+  }
+}
+
+async function fetchNeoForgeVersions(mcVersion: string) {
+  const cacheKey = "neoforge_versions_" + mcVersion;
+  const cached = getCache<string[]>(cacheKey);
+  if (cached) {
+    neoforgeVersions.value = cached;
+    if (neoforgeVersions.value.length > 0) {
+      selectedNeoForgeVersion.value = neoforgeVersions.value[0];
+    }
+    return;
+  }
+  neoforgeLoading.value = true;
+  try {
+    const list = await invoke<NeoForgeBuild[]>("get_neoforge_versions", {
+      mcVersion,
+    });
+    neoforgeVersions.value = list.map((v) => v.version).reverse();
+    setCache(cacheKey, neoforgeVersions.value);
+    if (neoforgeVersions.value.length > 0) {
+      selectedNeoForgeVersion.value = neoforgeVersions.value[0];
+    }
+  } catch {
+    // keep current list
+  } finally {
+    neoforgeLoading.value = false;
   }
 }
 
@@ -160,11 +208,13 @@ onMounted(async () => {
   }
   document.addEventListener("mousedown", onDocMouseDown);
   fetchForgeVersions(selectedMcVersion.value);
+  fetchNeoForgeVersions(selectedMcVersion.value);
 });
 
 watch(selectedMcVersion, (newVer) => {
   if (newVer) {
     fetchForgeVersions(newVer);
+    fetchNeoForgeVersions(newVer);
   }
 });
 
@@ -176,6 +226,9 @@ function onDocMouseDown(e: MouseEvent) {
   }
   if (forgeDropdownOpen.value && forgeSelectRef.value && !forgeSelectRef.value.contains(e.target as Node)) {
     forgeDropdownOpen.value = false;
+  }
+  if (neoforgeDropdownOpen.value && neoforgeSelectRef.value && !neoforgeSelectRef.value.contains(e.target as Node)) {
+    neoforgeDropdownOpen.value = false;
   }
 }
 
@@ -235,8 +288,8 @@ async function startInstall() {
   });
 
   try {
-    const loaderType = loaderEnabled.value ? "fabric" : forgeEnabled.value ? "forge" : null;
-    const loaderVer = loaderEnabled.value ? selectedFabricVersion.value : forgeEnabled.value ? selectedForgeVersion.value : null;
+    const loaderType = loaderEnabled.value ? "fabric" : forgeEnabled.value ? "forge" : neoforgeEnabled.value ? "neoforge" : null;
+    const loaderVer = loaderEnabled.value ? selectedFabricVersion.value : forgeEnabled.value ? selectedForgeVersion.value : neoforgeEnabled.value ? selectedNeoForgeVersion.value : null;
 
     await invoke("install_instance", {
       name: instanceName.value,
@@ -268,20 +321,20 @@ onUnmounted(() => {
         <div class="header">
           <div class="header-left">
             <span class="icon-wrap">
-              <PackagePlus :size="16" class="icon" />
+              <VIcon :size="16" class="icon"><BoxArrowUp24Regular /></VIcon>
             </span>
             <span class="title">{{ t("app.mainwindow.sidebar.add-instance") }}</span>
           </div>
           <button class="close-btn" @click="handleClose">
-            <X :size="18" />
+            <VIcon :size="18"><Dismiss24Regular /></VIcon>
           </button>
         </div>
         <div class="divider"></div>
         <div class="body">
           <div class="top-row">
             <div class="icon-box">
-              <div v-if="forgeEnabled" class="icon-preview icon-preview-anvil">
-                <Anvil :size="32" />
+              <div v-if="forgeEnabled || neoforgeEnabled" class="icon-preview icon-preview-anvil">
+                <VIcon :size="32"><Toolbox24Regular /></VIcon>
               </div>
               <div v-else class="icon-preview" :style="{ backgroundImage: `url(${loaderEnabled ? fabricIcon : mcIcon})` }"></div>
             </div>
@@ -296,13 +349,13 @@ onUnmounted(() => {
                 <span class="version-combo-sub">{{ t("app.mainwindow.addinstance.versionSub") }}</span>
                 <span class="version-combo-value">{{ selectedMcVersion }}</span>
               </div>
-              <ChevronDown :size="16" class="version-combo-arrow" />
+              <VIcon :size="16" class="version-combo-arrow"><ChevronDown24Regular /></VIcon>
             </div>
           </div>
           <div class="section-divider"></div>
           <div class="card-row" :class="{ 'card-row-loading': loading }">
             <div v-if="loading" class="loading-overlay">
-              <LoaderCircle :size="20" class="spinner" />
+              <VIcon :size="20"><ArrowClockwise24Regular class="spinner" /></VIcon>
               <span>{{ t("app.mainwindow.addinstance.loading") }}</span>
             </div>
             <div v-else-if="loadError" class="loading-overlay error">
@@ -312,18 +365,18 @@ onUnmounted(() => {
                 <div class="loaders-area">
                  <div class="loader-row" :class="{ 'global-disabled': isOldVersion }">
                    <div class="btn-wrap">
-                     <button
-                       class="loader-btn"
-                       :class="{ active: loaderEnabled, blocked: forgeEnabled }"
-                       :disabled="isOldVersion"
-                       @click="toggleFabric"
-                       @mouseenter="forgeEnabled && (hoveredTooltip = 'fabric')"
-                       @mouseleave="hoveredTooltip = null"
-                     >
-                       <img :src="fabricIcon" class="loader-icon" />
-                       <span>Fabric</span>
-                     </button>
-                     <span v-if="hoveredTooltip === 'fabric'" class="btn-tooltip">{{ t("app.mainwindow.addinstance.tooltipConflict") }}</span>
+                      <button
+                        class="loader-btn"
+                        :class="{ active: loaderEnabled, blocked: forgeEnabled || neoforgeEnabled }"
+                        :disabled="isOldVersion"
+                        @click="toggleFabric"
+                        @mouseenter="(forgeEnabled || neoforgeEnabled) && (hoveredTooltip = 'fabric')"
+                        @mouseleave="hoveredTooltip = null"
+                      >
+                        <img :src="fabricIcon" class="loader-icon" />
+                        <span>Fabric</span>
+                      </button>
+                      <span v-if="hoveredTooltip === 'fabric'" class="btn-tooltip">{{ t("app.mainwindow.addinstance.tooltipConflict") }}</span>
                    </div>
                    <div class="version-combobox" ref="fabricSelectRef">
                      <button
@@ -333,7 +386,7 @@ onUnmounted(() => {
                        @click.stop="loaderEnabled && (fabricDropdownOpen = !fabricDropdownOpen)"
                      >
                        <span class="combo-text">{{ selectedFabricVersion || t('app.mainwindow.addinstance.noSelection') }}</span>
-                       <ChevronDown :size="14" class="combo-arrow" />
+                        <VIcon :size="14" class="combo-arrow"><ChevronDown24Regular /></VIcon>
                      </button>
                      <div v-if="fabricDropdownOpen" class="combo-dropdown">
                        <button
@@ -349,18 +402,18 @@ onUnmounted(() => {
                  </div>
                 <div class="loader-row" :class="{ 'global-disabled': isOldVersion }">
                    <div class="btn-wrap">
-                     <button
-                       class="loader-btn"
-                       :class="{ active: forgeEnabled, blocked: loaderEnabled }"
-                       :disabled="isOldVersion"
-                       @click="toggleForge"
-                       @mouseenter="loaderEnabled && (hoveredTooltip = 'forge')"
-                       @mouseleave="hoveredTooltip = null"
-                     >
-                       <Anvil :size="20" class="loader-icon" />
-                       <span>Forge</span>
-                     </button>
-                     <span v-if="hoveredTooltip === 'forge'" class="btn-tooltip">{{ t("app.mainwindow.addinstance.tooltipConflict") }}</span>
+                      <button
+                        class="loader-btn"
+                        :class="{ active: forgeEnabled, blocked: loaderEnabled || neoforgeEnabled }"
+                        :disabled="isOldVersion"
+                        @click="toggleForge"
+                        @mouseenter="(loaderEnabled || neoforgeEnabled) && (hoveredTooltip = 'forge')"
+                        @mouseleave="hoveredTooltip = null"
+                      >
+                         <VIcon :size="20" class="loader-icon"><Toolbox24Regular /></VIcon>
+                        <span>Forge</span>
+                      </button>
+                      <span v-if="hoveredTooltip === 'forge'" class="btn-tooltip">{{ t("app.mainwindow.addinstance.tooltipConflict") }}</span>
                    </div>
                    <div class="version-combobox" ref="forgeSelectRef">
                      <button
@@ -371,8 +424,8 @@ onUnmounted(() => {
                      >
                        <span v-if="forgeLoading" class="combo-loading-text">{{ t("app.mainwindow.addinstance.forgeLoading") }}</span>
                        <span v-else class="combo-text">{{ selectedForgeVersion }}</span>
-                       <LoaderCircle v-if="forgeLoading" :size="14" class="combo-spinner" />
-                       <ChevronDown v-else :size="14" class="combo-arrow" />
+                        <VIcon v-if="forgeLoading" :size="14"><ArrowClockwise24Regular class="combo-spinner" /></VIcon>
+                        <VIcon v-else :size="14" class="combo-arrow"><ChevronDown24Regular /></VIcon>
                      </button>
                      <div v-if="forgeDropdownOpen" class="combo-dropdown">
                        <button
@@ -384,15 +437,54 @@ onUnmounted(() => {
                          @click="selectedForgeVersion = v; forgeDropdownOpen = false"
                        >{{ v }}</button>
                      </div>
-                   </div>
-                 </div>
-              </div>
+                    </div>
+                  </div>
+                 <div class="loader-row" :class="{ 'global-disabled': isOldVersion }">
+                    <div class="btn-wrap">
+                      <button
+                        class="loader-btn"
+                        :class="{ active: neoforgeEnabled, blocked: loaderEnabled || forgeEnabled }"
+                        :disabled="isOldVersion"
+                        @click="toggleNeoForge"
+                        @mouseenter="(loaderEnabled || forgeEnabled) && (hoveredTooltip = 'neoforge')"
+                        @mouseleave="hoveredTooltip = null"
+                      >
+                         <VIcon :size="20" class="loader-icon"><Toolbox24Regular /></VIcon>
+                        <span>NeoForge</span>
+                      </button>
+                      <span v-if="hoveredTooltip === 'neoforge'" class="btn-tooltip">{{ t("app.mainwindow.addinstance.tooltipConflict") }}</span>
+                    </div>
+                    <div class="version-combobox" ref="neoforgeSelectRef">
+                      <button
+                        class="combo-trigger"
+                        :class="{ disabled: !neoforgeEnabled || isOldVersion }"
+                        :disabled="!neoforgeEnabled || isOldVersion"
+                        @click.stop="neoforgeEnabled && !neoforgeLoading && (neoforgeDropdownOpen = !neoforgeDropdownOpen)"
+                      >
+                        <span v-if="neoforgeLoading" class="combo-loading-text">{{ t("app.mainwindow.addinstance.forgeLoading") }}</span>
+                        <span v-else class="combo-text">{{ selectedNeoForgeVersion }}</span>
+                         <VIcon v-if="neoforgeLoading" :size="14"><ArrowClockwise24Regular class="combo-spinner" /></VIcon>
+                         <VIcon v-else :size="14" class="combo-arrow"><ChevronDown24Regular /></VIcon>
+                      </button>
+                      <div v-if="neoforgeDropdownOpen" class="combo-dropdown">
+                        <button
+                          v-for="v in neoforgeVersions"
+                          :key="v"
+                          class="combo-option"
+                          :class="{ active: v === selectedNeoForgeVersion }"
+                          :disabled="isOldVersion"
+                          @click="selectedNeoForgeVersion = v; neoforgeDropdownOpen = false"
+                        >{{ v }}</button>
+                      </div>
+                    </div>
+                  </div>
+               </div>
             </template>
           </div>
           <div class="footer">
             <Transition name="slide-right">
               <div v-if="loaderEnabled && selectedFabricVersion && !fabricInfoDismissed" class="fabric-info">
-                <Info :size="16" class="info-icon" />
+                <VIcon :size="16" class="info-icon"><Info24Regular /></VIcon>
                 <span>{{ t("app.mainwindow.addinstance.fabricInfo", { version: selectedFabricVersion }) }}</span>
               </div>
             </Transition>
@@ -407,12 +499,12 @@ onUnmounted(() => {
             </template>
             <template v-else>
               <button class="pack-btn">
-                <Package :size="16" />
+                <VIcon :size="16"><Box24Regular /></VIcon>
                 <span>安装整合包</span>
               </button>
               <button class="confirm-btn" :disabled="!canProceed" @click="startInstall">
                 <span>{{ t("app.mainwindow.addinstance.confirm") }}</span>
-                <ArrowRight :size="16" />
+                <VIcon :size="16"><ArrowRight24Regular /></VIcon>
               </button>
             </template>
           </div>
@@ -422,7 +514,7 @@ onUnmounted(() => {
         <div class="header mc-version-header">
           <div class="header-left">
             <button class="back-btn" @click="viewState = 'root'">
-              <ArrowLeft :size="21" />
+              <VIcon :size="21"><ArrowLeft24Regular /></VIcon>
             </button>
             <div class="header-title-group">
               <span class="header-sub">{{ t("app.mainwindow.addinstance.headerSub") }}</span>
@@ -430,11 +522,11 @@ onUnmounted(() => {
             </div>
           </div>
           <div class="header-search">
-            <Search :size="16" class="search-icon" />
+            <VIcon :size="16" class="search-icon"><Search24Regular /></VIcon>
             <input v-model="searchQuery" class="search-input" placeholder="搜索版本..." />
           </div>
           <button class="close-btn" @click="emit('close')">
-            <X :size="18" />
+            <VIcon :size="18"><Dismiss24Regular /></VIcon>
           </button>
         </div>
         <div class="divider"></div>
@@ -695,7 +787,7 @@ onUnmounted(() => {
 }
 
 .name-combo:focus-within {
-  border-color: #0078d4;
+  border-color: var(--title-color);
 }
 
 .name-combo-info {
@@ -848,8 +940,8 @@ onUnmounted(() => {
 }
 
 .loader-btn.active {
-  background: rgba(0, 160, 255, 0.15);
-  border-color: rgba(0, 160, 255, 0.4);
+  background: rgba(128, 128, 128, 0.12);
+  border-color: var(--title-color);
 }
 
 .loader-btn.blocked {
