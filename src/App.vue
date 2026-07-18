@@ -20,6 +20,7 @@ import LibraryPage from "./components/view/rootpages/versionroot.vue";
 import ResourcesCenter from "./components/view/ResourcesCenter.vue";
 import AccountInterface from "./components/accinterface.vue";
 import SettingsInterface from "./components/settings_interface.vue";
+import InstanceSettingsInterface from "./components/InstanceSettingsInterface.vue";
 import OnboardingWindow from "./components/view/onboarding/OnboardingWindow.vue";
 import CrashShell from "./components/view/window/crush_shell.vue";
 const app = getCurrentWindow();
@@ -31,6 +32,7 @@ const isLinux = navigator.userAgent.toLowerCase().includes("linux");
 const maxed = ref(false);
 const nav = ref("home");
 const showSettings = ref(false);
+const showInstanceSettings = ref(false);
 const showAccount = ref(false);
 const showNewInst = ref(false);
 const showingInstance = ref(false);
@@ -109,6 +111,104 @@ function onDockLaunch() {
   }
 }
 
+interface InstanceStats {
+  lastPlayDuration: number
+  lastPlayTime: string
+  totalPlayTime: number
+  currentSessionStart: number | null
+}
+const STORAGE_KEY = 'firefile-instance-stats'
+const instanceStats = ref<Record<string, InstanceStats>>({})
+function loadStats() {
+  try { instanceStats.value = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') } catch {}
+}
+function saveStats() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(instanceStats.value))
+}
+function ensureStats(name: string): InstanceStats {
+  if (!instanceStats.value[name]) {
+    instanceStats.value[name] = { lastPlayDuration: 0, lastPlayTime: '', totalPlayTime: 0, currentSessionStart: null }
+  }
+  return instanceStats.value[name]
+}
+function fmtDuration(sec: number): string {
+  if (sec <= 0) return '0s'
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  const s = sec % 60
+  let r = ''
+  if (h > 0) r += h + 'h '
+  if (m > 0 || h > 0) r += m + 'm '
+  r += s + 's'
+  return r.trim()
+}
+function fmtDate(d: Date): string {
+  const y = d.getFullYear()
+  const mo = String(d.getMonth() + 1).padStart(2, '0')
+  const da = String(d.getDate()).padStart(2, '0')
+  const h = String(d.getHours()).padStart(2, '0')
+  const mi = String(d.getMinutes()).padStart(2, '0')
+  return `${y}/${mo}/${da} ${h}:${mi}`
+}
+const liveTimer = ref(0)
+watch(dockTask, (n, o) => {
+  const name = currentInstanceName.value
+  if (!name) return
+  const stats = ensureStats(name)
+  if (n?.status === 'launching' && (!o || o.status === 'idle' || o.status === 'exited' || o.status === 'error')) {
+    stats.currentSessionStart = Date.now()
+    saveStats()
+  }
+  if (o && (o.status === 'running' || o.status === 'launching') && n && (n.status === 'exited' || n.status === 'error')) {
+    if (stats.currentSessionStart) {
+      const dur = Math.floor((Date.now() - stats.currentSessionStart) / 1000)
+      stats.lastPlayDuration = dur
+      stats.lastPlayTime = fmtDate(new Date())
+      stats.totalPlayTime += dur
+      stats.currentSessionStart = null
+      saveStats()
+    }
+  }
+})
+watch(currentInstanceName, () => { liveTimer.value = Date.now() })
+
+const currentStats = computed(() => {
+  const name = currentInstanceName.value
+  if (!name) return null
+  return ensureStats(name)
+})
+const displayLastDuration = computed(() => {
+  const s = currentStats.value
+  if (!s) return '0s'
+  if (s.currentSessionStart) {
+    return '正在游玩 ' + fmtDuration(Math.floor((Date.now() - s.currentSessionStart) / 1000))
+  }
+  return fmtDuration(s.lastPlayDuration)
+})
+const displayLastTime = computed(() => {
+  const s = currentStats.value
+  if (!s) return '--'
+  if (s.currentSessionStart) return '正在游玩'
+  return s.lastPlayTime || '--'
+})
+const displayTotalTime = computed(() => {
+  const s = currentStats.value
+  if (!s) return '0s'
+  return fmtDuration(s.totalPlayTime)
+})
+
+const currentInstForSettings = computed(() => {
+  const inst = instances.value.find(i => i.name === currentInstanceName.value)
+  if (!inst) return null
+  return {
+    name: inst.name,
+    version: inst.version,
+    versionType: inst.version_type,
+    loader: inst.loader ? { type: inst.loader.type as "fabric" | "forge" | "neoforge" | "quilt", version: inst.loader.version } : undefined,
+    icon: inst.icon || undefined,
+  }
+})
+
 function onNav(id: string) {
   if (id === "settings") { showSettings.value = true; return; }
   if (id === "account") { showAccount.value = true; return; }
@@ -148,6 +248,8 @@ onMounted(async () => {
   listen("tauri://resize", async () => { maxed.value = await app.isMaximized(); });
   loadAccount();
   loadInstances();
+  loadStats();
+  window.setInterval(() => { liveTimer.value = Date.now() }, 1000);
   listen("account-refresh", loadAccount);
   window.addEventListener("account-changed", loadAccount);
   window.addEventListener("instance-installed", loadInstances);
@@ -318,12 +420,34 @@ onMounted(async () => {
       </div>
     </template>
     <template v-if="!isFullscreenUI && nav === 'library' && showingInstance">
-      <button class="slaunch" :class="{ running: dockTask?.status === 'running' }" @click="onDockLaunch">
-        <VIcon v-if="dockTask?.status === 'launching'" :size="18"><ArrowClockwise24Regular class="spin" /></VIcon>
-        <VIcon v-else-if="dockTask?.status === 'running'" :size="18"><Square24Regular /></VIcon>
-        <VIcon v-else :size="18"><Play24Regular /></VIcon>
-        <span>{{ dockTask?.status === 'running' ? '运行中' : dockTask?.status === 'launching' ? '启动中...' : '启动该实例' }}</span>
-      </button>
+      <div class="saction-wrap">
+        <button class="slaunch" :class="{ running: dockTask?.status === 'running' }" @click="onDockLaunch">
+          <VIcon v-if="dockTask?.status === 'launching'" :size="18"><ArrowClockwise24Regular class="spin" /></VIcon>
+          <VIcon v-else-if="dockTask?.status === 'running'" :size="18"><Square24Regular /></VIcon>
+          <VIcon v-else :size="18"><Play24Regular /></VIcon>
+          <span>{{ dockTask?.status === 'running' ? '运行中' : dockTask?.status === 'launching' ? '启动中...' : '启动该实例' }}</span>
+        </button>
+        <button class="ssettings" @click="showInstanceSettings = true">
+          <VIcon :size="18"><Settings24Regular /></VIcon>
+        </button>
+        <div class="sdivider"></div>
+        <div class="sinfo">
+          <div class="sinfo-item">
+            <span class="sinfo-label">上次游玩时长</span>
+            <span class="sinfo-value">{{ displayLastDuration }}</span>
+          </div>
+          <div class="sinfo-sep"></div>
+          <div class="sinfo-item">
+            <span class="sinfo-label">最后游玩时间</span>
+            <span class="sinfo-value">{{ displayLastTime }}</span>
+          </div>
+          <div class="sinfo-sep"></div>
+          <div class="sinfo-item">
+            <span class="sinfo-label">总游玩时间</span>
+            <span class="sinfo-value">{{ displayTotalTime }}</span>
+          </div>
+        </div>
+      </div>
     </template>
     <Teleport to="body">
       <div v-if="!isFullscreenUI && instMenuOpen" class="inst-menu sidebar-inst-menu" @click.stop>
@@ -340,6 +464,11 @@ onMounted(async () => {
       </div>
     </Teleport>
     <SettingsInterface v-if="showSettings" @close="showSettings = false" />
+    <InstanceSettingsInterface
+      v-if="showInstanceSettings && currentInstForSettings"
+      :instance="currentInstForSettings"
+      @close="showInstanceSettings = false"
+    />
   </div>
 </template>
 
@@ -514,7 +643,7 @@ body {
   height: 36px;
   border: none;
   border-radius: 10px;
-  background: #0078d4;
+  background: #00BAAD;
   color: #fff;
   font-size: 13px;
   font-weight: 600;
@@ -525,7 +654,7 @@ body {
 }
 
 .dlaunch:hover {
-  background: #0086e6;
+  background: #00CFC0;
 }
 
 .dlaunch.running {
@@ -536,10 +665,18 @@ body {
   background: #d43a3a;
 }
 
-.slaunch {
+.saction-wrap {
   position: fixed;
-  bottom: 14px;
-  left: 64px;
+  top: 50%;
+  left: 78px;
+  transform: translateY(calc(-50% - 60px));
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 50;
+}
+
+.slaunch {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -547,7 +684,7 @@ body {
   height: 36px;
   border: none;
   border-radius: 10px;
-  background: #0078d4;
+  background: #00BAAD;
   color: #fff;
   font-size: 13px;
   font-weight: 600;
@@ -555,10 +692,73 @@ body {
   cursor: pointer;
   transition: background 0.15s, opacity 0.15s;
   white-space: nowrap;
-  z-index: 50;
 }
+
+.ssettings {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--title-color);
+  opacity: 0.5;
+  cursor: pointer;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.ssettings:hover {
+  background: rgba(128, 128, 128, 0.12);
+}
+
+.sdivider {
+  width: 1px;
+  height: 24px;
+  background: rgba(128, 128, 128, 0.2);
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+
+.sinfo {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-left: 12px;
+}
+
+.sinfo-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sinfo-label {
+  font-size: 10px;
+  color: var(--title-color);
+  opacity: 0.4;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.sinfo-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--title-color);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.sinfo-sep {
+  width: 1px;
+  height: 24px;
+  background: rgba(128, 128, 128, 0.15);
+  flex-shrink: 0;
+}
+
 .slaunch:hover {
-  background: #0086e6;
+  background: #00CFC0;
 }
 .slaunch.running {
   background: rgba(212,58,58,0.85);

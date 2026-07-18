@@ -50,16 +50,26 @@ const emit = defineEmits<{
         <VIcon :size="21"><MoreHorizontal24Regular /></VIcon>
         <span class="nav-tooltip">更多实例...</span>
       </button>
-      <div class="sidebar-spacer"></div>
       <button
-        v-for="item in navItems.slice(3)"
+        v-for="item in [navItems[3]]"
         :key="item.id"
         class="sidebar-item"
         :class="{ active: activeNav === item.id }"
         @click="emit('navigate', item.id)"
       >
         <VIcon :size="23"><component :is="item.icon" /></VIcon>
-        <span class="nav-tooltip">{{ item.id === 'add-instance' ? '创建实例' : item.id === 'settings' ? '设置' : '' }}</span>
+        <span class="nav-tooltip">{{ item.id === 'add-instance' ? '创建实例' : '' }}</span>
+      </button>
+      <div class="sidebar-spacer"></div>
+      <button
+        v-for="item in navItems.slice(4)"
+        :key="item.id"
+        class="sidebar-item"
+        :class="{ active: activeNav === item.id }"
+        @click="emit('navigate', item.id)"
+      >
+        <VIcon :size="23"><component :is="item.icon" /></VIcon>
+        <span class="nav-tooltip">{{ item.id === 'settings' ? '设置' : '' }}</span>
       </button>
 
     </div>
@@ -101,7 +111,7 @@ const emit = defineEmits<{
   background: var(--sidebar-hover);
 }
 .sidebar-item.active {
-  background: #0078d4;
+  background: #00BAAD;
   color: #fff;
 }
 .nav-tooltip {

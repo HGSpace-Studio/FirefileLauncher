@@ -4,7 +4,7 @@ import { useI18n } from "vue-i18n";
 import { getSystemLocale } from "../i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { Icon as VIcon } from "@vicons/utils";
-import { Settings24Regular, Globe24Regular, Color24Regular, Info24Regular, ArrowSync24Regular, Dismiss24Regular, DrinkCoffee24Regular, ArrowClockwise24Regular, ChevronDown24Regular, ArrowUpload24Regular, Table24Regular, Document24Regular } from "@vicons/fluent";
+import { Settings24Regular, Globe24Regular, Color24Regular, Info24Regular, Dismiss24Regular, DrinkCoffee24Regular, ArrowClockwise24Regular, ChevronDown24Regular, ArrowUpload24Regular, Table24Regular, BuildingBank24Regular } from "@vicons/fluent";
 import { open } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import logo from "../assets/logos/logo.png";
@@ -489,26 +489,18 @@ onUnmounted(() => {
             <p class="language-notice">{{ t("app.mainwindow.settings.languageNotice") }}</p>
           </div>
           <div v-if="activeSetting === 'about'" class="setting-panel about-panel">
-            <div class="setting-card about-card">
-              <div class="about-info">
-                <img :src="logo" class="about-logo" alt="logo" />
-                <div class="about-meta">
-                  <span class="about-name">{{ t("app.mainwindow.settings.about.name") }}</span>
-                  <span class="about-version">{{ t("app.mainwindow.settings.about.version") }}</span>
-                  
-                </div>
-              </div>
-              <button class="about-link-btn" @click="openUrl('https://github.com/HGSpace-Studio/Firefly-Launcher')">
-                <VIcon :size="16"><ArrowSync24Regular /></VIcon>
-                <span>GitHub</span>
-              </button>
+            <div class="setting-card about-card" :style="{ '--about-bg': `url(${default1Bg})` }">
+              <img :src="logo" class="about-logo" />
+              <span class="about-name">Firefly Launcher</span>
+              <span class="about-version">版本 1.11.0</span>
             </div>
-            <div class="setting-card about-license-card">
-              <span class="about-license-icon"><VIcon :size="32"><Document24Regular /></VIcon></span>
-              <div class="about-license-text">
-                <span class="about-license-sub">Copyright (c) 2026 HGSpace(Playful Team)</span>
-                <span class="about-license-main">本软件使用GNU General Public License v3.0进行开源</span>
+            <div class="setting-card license-card">
+              <span class="license-icon"><VIcon :size="24"><BuildingBank24Regular /></VIcon></span>
+              <div class="license-text">
+                <span class="license-sub">Copyright(c) 2026  HGSpace Studio</span>
+                <span class="license-main">本应用使用GNU General Public License v3.0 进行开源</span>
               </div>
+              <button class="license-btn" @click="openUrl('https://github.com/HGSpace-Studio/Firefly-Launcher')">GitHub 仓库</button>
             </div>
           </div>
         </div>
@@ -658,8 +650,8 @@ onUnmounted(() => {
 }
 
 .settings-nav-item.active {
-  background: var(--sidebar-active);
-  color: var(--sidebar-active-color);
+  background: #00BAAD;
+  color: #fff;
 }
 
 .settings-nav-divider {
@@ -1244,13 +1236,29 @@ onUnmounted(() => {
 }
 
 .about-card {
+  position: relative;
   padding: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  background: linear-gradient(45deg, var(--panel-bg) 0%, var(--panel-bg) 35%, transparent 70%);
+  border: none;
+  overflow: hidden;
+  isolation: isolate;
 }
 
-.about-info {
-  display: flex;
-  align-items: center;
-  gap: 14px;
+.about-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--about-bg) center / cover;
+  z-index: -1;
+  transition: transform 0.3s ease;
+}
+
+.about-card:hover::before {
+  transform: scale(1.05);
 }
 
 .about-logo {
@@ -1258,17 +1266,12 @@ onUnmounted(() => {
   height: 48px;
   border-radius: 10px;
   flex-shrink: 0;
-}
-
-.about-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  margin-bottom: 5px;
 }
 
 .about-name {
   font-size: 15px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--title-color);
 }
 
@@ -1278,37 +1281,16 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 
-.about-link-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
-  border: 1px solid rgba(128, 128, 128, 0.25);
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-  font-size: 13px;
-  font-family: inherit;
-  color: var(--title-color);
-  opacity: 0.6;
-  transition: opacity 0.15s, background 0.15s;
-  flex-shrink: 0;
-}
-
-.about-link-btn:hover {
-  opacity: 1;
-  background: rgba(128, 128, 128, 0.12);
-}
-
-.about-license-card {
+.license-card {
   margin-top: 7px;
   padding: 14px 16px;
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 14px;
 }
 
-.about-license-icon {
+.license-icon {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1321,25 +1303,45 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.about-license-text {
+.license-text {
   display: flex;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  margin-left: -50px;
 }
 
-.about-license-sub {
+.license-sub {
   font-size: 11px;
   color: var(--title-color);
   opacity: 0.45;
   line-height: 1.3;
 }
 
-.about-license-main {
+.license-main {
   font-size: 14px;
   font-weight: 700;
   color: var(--title-color);
   line-height: 1.3;
 }
+
+.license-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 8px 14px;
+  border: 1px solid rgba(128, 128, 128, 0.25);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--title-color);
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.license-btn:hover {
+  opacity: 1;
+  background: rgba(128, 128, 128, 0.12);
+}
+
 </style>

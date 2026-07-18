@@ -8,7 +8,8 @@ use minecraft_java_rs_core::models::loader::LoaderType;
 use minecraft_java_rs_core::models::minecraft::Authenticator;
 use minecraft_java_rs_core::utils::auth::offline_uuid;
 use serde::{Deserialize, Serialize};
-use std::io::Write;
+use std::fs;
+use std::io::{BufReader, Write};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::mpsc;
@@ -540,13 +541,18 @@ pub async fn launch_minecraft(app: AppHandle, args: LaunchArgs) -> Result<(), St
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct OobeSettings {
     pub locale: String,
     pub theme: String,
     pub font: String,
+    #[serde(alias = "java_path")]
     pub java_path: String,
+    #[serde(alias = "account_type")]
     pub account_type: String,
+    #[serde(alias = "account_name")]
     pub account_name: String,
+    #[serde(alias = "oobe_completed")]
     pub oobe_completed: bool,
 }
 
@@ -1316,6 +1322,18 @@ pub async fn open_log_folder(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn open_instance_game_folder(app: AppHandle, instance_name: String) -> Result<(), String> {
+    let mc_dir = get_minecraft_dir().join("instances").join(&instance_name);
+    std::fs::create_dir_all(&mc_dir)
+        .map_err(|e| format!("无法创建实例目录: {e}"))?;
+    let opener = app.state::<tauri_plugin_opener::Opener<tauri::Wry>>();
+    opener
+        .open_path(mc_dir.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| format!("无法打开游戏目录: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn export_crash_log(app: AppHandle, content: String) -> Result<(), String> {
     use tauri_plugin_dialog::DialogExt;
     let (tx, rx) = tokio::sync::oneshot::channel::<Option<std::path::PathBuf>>();
@@ -1561,4 +1579,126 @@ pub async fn poll_microsoft_auth(
             _ => PollResult::Error { reason: format!("验证失败: {error}") },
         }
     }
+}
+
+// ---- Instance stats cards ----
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveInfo {
+    pub level_name: String,
+    pub last_played: String,
+    pub dir_name: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceCardData {
+    pub screenshots: Vec<String>,
+    pub mod_count: usize,
+    pub resourcepack_count: usize,
+    pub save_count: usize,
+    pub recent_save: Option<SaveInfo>,
+}
+
+#[tauri::command]
+pub fn get_instance_card_data(instance_name: String) -> InstanceCardData {
+    let mc_dir = get_minecraft_dir().join("instances").join(&instance_name);
+    let screenshot_dir = mc_dir.join("screenshots");
+    let mods_dir = mc_dir.join("mods");
+    let rp_dir = mc_dir.join("resourcepacks");
+    let saves_dir = mc_dir.join("saves");
+
+    let screenshots = fs::read_dir(&screenshot_dir)
+        .map(|d| {
+            d.filter_map(|e| e.ok())
+                .filter(|e| e.path().is_file())
+                .map(|e| e.file_name().to_string_lossy().to_string())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let mod_count = fs::read_dir(&mods_dir)
+        .map(|d| d.filter_map(|e| e.ok()).filter(|e| e.path().is_file()).count())
+        .unwrap_or(0);
+
+    let resourcepack_count = fs::read_dir(&rp_dir)
+        .map(|d| d.filter_map(|e| e.ok()).filter(|e| e.path().is_file()).count())
+        .unwrap_or(0);
+
+    let save_count = fs::read_dir(&saves_dir)
+        .map(|d| d.filter_map(|e| e.ok()).filter(|e| e.path().is_dir()).count())
+        .unwrap_or(0);
+
+    let recent_save = parse_recent_save(&saves_dir);
+
+    InstanceCardData {
+        screenshots,
+        mod_count,
+        resourcepack_count,
+        save_count,
+        recent_save,
+    }
+}
+
+fn parse_recent_save(saves_dir: &std::path::Path) -> Option<SaveInfo> {
+    let dirs = fs::read_dir(saves_dir).ok()?;
+    let mut candidates: Vec<SaveInfo> = Vec::new();
+
+    for entry in dirs.flatten() {
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let dir_name = entry.file_name().to_string_lossy().to_string();
+        let level_dat = path.join("level.dat");
+        if !level_dat.exists() {
+            continue;
+        }
+        if let Some(info) = parse_level_dat(&level_dat, &dir_name) {
+            candidates.push(info);
+        }
+    }
+
+    // sort by last_played (descending), return most recent
+    candidates.sort_by(|a, b| b.last_played.cmp(&a.last_played));
+    candidates.into_iter().next()
+}
+
+#[derive(serde::Deserialize)]
+#[allow(non_snake_case)]
+struct LevelDatRoot {
+    Data: LevelDatData,
+}
+
+#[derive(serde::Deserialize)]
+struct LevelDatData {
+    #[serde(alias = "LevelName")]
+    level_name: Option<String>,
+    #[serde(alias = "LastPlayed")]
+    last_played: Option<i64>,
+}
+
+fn parse_level_dat(path: &std::path::Path, dir_name: &str) -> Option<SaveInfo> {
+    let file = fs::File::open(path).ok()?;
+    let decoder = flate2::read::GzDecoder::new(file);
+    let reader = BufReader::new(decoder);
+    let root: LevelDatRoot = fastnbt::from_reader(reader).ok()?;
+
+    let level_name = root.Data.level_name.unwrap_or_else(|| dir_name.to_string());
+    let last_played_millis = root.Data.last_played?;
+
+    let secs = last_played_millis / 1000;
+    let nanos = ((last_played_millis % 1000) * 1_000_000) as u32;
+    let naive = chrono::DateTime::from_timestamp(secs, nanos)
+        .unwrap_or_default()
+        .naive_utc();
+    let datetime: chrono::DateTime<chrono::Local> = chrono::DateTime::from_naive_utc_and_offset(naive, *chrono::Local::now().offset());
+    let last_played = datetime.format("%Y/%m/%d %H:%M").to_string();
+
+    Some(SaveInfo {
+        level_name,
+        last_played,
+        dir_name: dir_name.to_string(),
+    })
 }

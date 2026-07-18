@@ -1,8 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { Icon as VIcon } from "@vicons/utils";
-import { ArrowLeft24Regular, Games24Regular, Play24Regular, Square24Regular, ArrowClockwise24Regular, Flash24Regular, Grid24Regular, Settings24Regular, PuzzlePiece24Regular, WindowConsole20Regular, Options24Regular, Save24Regular } from "@vicons/fluent";
+import { Games24Regular, Square24Regular, ArrowClockwise24Regular, Flash24Regular, Settings24Regular, PuzzlePiece24Regular, WindowConsole20Regular, Options24Regular, Save24Regular } from "@vicons/fluent";
 import { invoke } from "@tauri-apps/api/core";
+
+interface InstanceCardData {
+  screenshots: string[];
+  modCount: number;
+  resourcepackCount: number;
+  saveCount: number;
+  recentSave: { levelName: string; lastPlayed: string; dirName: string } | null;
+}
 import { addTask, updateTask, getTask, registerLaunchListeners } from "../../../stores/taskStore";
 import { currentInstanceName, currentLaunchFn, currentStopFn } from "../../../stores/instanceLaunch";
 import { addOpenedInstance } from "../../../stores/openedInstances";
@@ -11,9 +19,7 @@ const props = defineProps<{
   instance: InstanceData;
 }>();
 
-const emit = defineEmits<{
-  (e: "back"): void;
-}>();
+
 
 export interface InstanceData {
   name: string;
@@ -135,6 +141,8 @@ onUnmounted(() => {
   currentInstanceName.value = null
   currentLaunchFn.value = null
   currentStopFn.value = null
+  if (cardScreenshotUrl.value) URL.revokeObjectURL(cardScreenshotUrl.value)
+  if (refreshTimer) clearInterval(refreshTimer)
 })
 
 const settingsTab = ref<"general" | "quicklaunch" | "extensions" | "java" | "other">("general")
@@ -228,7 +236,29 @@ onMounted(async () => {
   } catch {
     // ignore
   }
+  loadCardData();
+  refreshTimer = window.setInterval(loadCardData, 5000);
 })
+
+const cardData = ref<InstanceCardData | null>(null);
+let refreshTimer: number | null = null;
+const cardScreenshotUrl = ref<string | null>(null);
+async function loadCardData() {
+  try {
+    const data = await invoke<InstanceCardData>("get_instance_card_data", { instanceName: props.instance.name });
+    cardData.value = data;
+    if (data.screenshots?.[0]) {
+      try {
+        const mcDir = await invoke<string>("get_minecraft_dir_string");
+        const bytes = await invoke<number[]>("read_image_file", { path: mcDir + "/instances/" + props.instance.name + "/screenshots/" + data.screenshots[0] });
+        const uint8 = new Uint8Array(bytes);
+        const blob = new Blob([uint8]);
+        if (cardScreenshotUrl.value) URL.revokeObjectURL(cardScreenshotUrl.value);
+        cardScreenshotUrl.value = URL.createObjectURL(blob);
+      } catch {}
+    }
+  } catch { cardData.value = null }
+}
 
 function onMinMemSlide(e: Event) {
   const v = (e.target as HTMLInputElement).value
@@ -260,9 +290,6 @@ async function saveSettings() {
 <template>
   <div class="detail-page">
     <div class="detail-header">
-      <button class="detail-back" @click="emit('back')">
-        <VIcon :size="20"><ArrowLeft24Regular /></VIcon>
-      </button>
       <div class="detail-icon-area">
         <img v-if="instance.icon" :src="instance.icon" class="detail-icon" />
         <VIcon v-else :size="40" class="detail-icon-placeholder"><Games24Regular /></VIcon>
@@ -271,35 +298,46 @@ async function saveSettings() {
         <span class="detail-loader">{{ loaderLabel }}</span>
         <span class="detail-version">Minecraft {{ instance.version }}</span>
       </div>
-      <div class="detail-tabs">
-        <button
-          class="tab-btn"
-          :class="{ active: activeTab === 'launch' }"
-          @click="activeTab = 'launch'"
-        >
-          <VIcon :size="16"><Play24Regular /></VIcon>
-          <span>启动</span>
-        </button>
-        <button
-          class="tab-btn"
-          :class="{ active: activeTab === 'settings' }"
-          @click="activeTab = 'settings'"
-        >
-          <VIcon :size="16"><Flash24Regular /></VIcon>
-          <span>设置</span>
-        </button>
-        <button
-          class="tab-btn"
-          :class="{ active: activeTab === 'resources' }"
-          @click="activeTab = 'resources'"
-        >
-          <VIcon :size="16"><Grid24Regular /></VIcon>
-          <span>安装的资源</span>
-        </button>
-      </div>
+
     </div>
     <div class="detail-content">
       <div v-if="activeTab === 'launch'" class="tab-panel">
+        <div class="dcards">
+          <div class="dcard dcard-left">
+            <div class="dcard-screenshot">
+              <img v-if="cardScreenshotUrl" :src="cardScreenshotUrl" class="dcard-screenshot-img" />
+              <div v-else class="dcard-screenshot-placeholder">
+                <VIcon :size="32" class="dcard-screenshot-icon"><Games24Regular /></VIcon>
+                <span>暂无截图</span>
+              </div>
+              <div class="dcard-screenshot-gradient"></div>
+            </div>
+            <div class="dcard-stats">
+              <div class="dcard-stat-item">
+                <span class="dcard-stat-label">模组</span>
+                <span class="dcard-stat-value">{{ cardData?.modCount ?? 0 }}</span>
+              </div>
+              <div class="dcard-stat-item">
+                <span class="dcard-stat-label">资源包</span>
+                <span class="dcard-stat-value">{{ cardData?.resourcepackCount ?? 0 }}</span>
+              </div>
+              <div class="dcard-stat-item">
+                <span class="dcard-stat-label">存档</span>
+                <span class="dcard-stat-value">{{ cardData?.saveCount ?? 0 }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="dcard dcard-right">
+            <div v-if="cardData?.recentSave" class="dcard-save">
+              <span class="dcard-save-label">最近游玩</span>
+              <span class="dcard-save-name">{{ cardData.recentSave.levelName }}</span>
+              <span class="dcard-save-time">{{ cardData.recentSave.lastPlayed }}</span>
+            </div>
+            <div v-else class="dcard-save empty">
+              <span>暂无存档记录</span>
+            </div>
+          </div>
+        </div>
       </div>
       <div v-else-if="activeTab === 'settings'" class="tab-panel">
         <div class="set-layout">
@@ -525,25 +563,6 @@ async function saveSettings() {
   align-items: center;
   gap: 16px;
   flex-shrink: 0;
-}
-
-.detail-back {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--title-color);
-  cursor: pointer;
-  transition: background 0.15s;
-  flex-shrink: 0;
-}
-
-.detail-back:hover {
-  background: rgba(128, 128, 128, 0.15);
 }
 
 .detail-icon-area {
@@ -1050,19 +1069,143 @@ async function saveSettings() {
   transition: width 0.4s ease;
 }
 
-.launch-bar {
-  width: 100%;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(0, 120, 212, 0.15);
-  overflow: hidden;
+.dcards {
+  display: flex;
+  gap: 20px;
+  height: 100%;
+  align-items: flex-end;
+  padding: 0 0 20px;
 }
 
-.launch-bar-fill {
+
+
+.dcard-left .dcard-screenshot {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(128, 128, 128, 0.08);
+}
+
+.dcard-left .dcard-screenshot-img {
+  width: 100%;
   height: 100%;
-  border-radius: 2px;
-  background: #0078d4;
-  transition: width 0.4s ease;
+  object-fit: cover;
+  display: block;
+}
+
+.dcard-left .dcard-screenshot-gradient {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 50%;
+  background: linear-gradient(transparent, var(--panel-bg));
+  pointer-events: none;
+}
+
+.dcard-left .dcard-screenshot-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  color: var(--title-color);
+  opacity: 0.3;
+  font-size: 13px;
+}
+
+.dcard-left .dcard-screenshot-icon {
+  opacity: 0.5;
+}
+
+.dcard-left .dcard-stats {
+  padding: 0 18px 18px;
+}
+
+.dcard {
+  flex: 1;
+  border-radius: 8px;
+  background: var(--panel-bg);
+  border: 1px solid rgba(128, 128, 128, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+}
+
+.dcard-left {
+  position: relative;
+  top: 100px;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 15px;
+}
+
+.dcard-stats {
+  display: flex;
+  gap: 28px;
+}
+
+.dcard-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.dcard-stat-label {
+  font-size: 12px;
+  color: var(--title-color);
+  opacity: 0.4;
+  line-height: 1;
+}
+
+.dcard-stat-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--title-color);
+  line-height: 1.2;
+}
+
+.dcard-right {
+  justify-content: center;
+}
+
+.dcard-save {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dcard-save.empty {
+  align-items: center;
+  color: var(--title-color);
+  opacity: 0.35;
+  font-size: 14px;
+}
+
+.dcard-save-label {
+  font-size: 12px;
+  color: var(--title-color);
+  opacity: 0.4;
+  line-height: 1;
+}
+
+.dcard-save-name {
+  font-size: 26px;
+  font-weight: 600;
+  color: var(--title-color);
+  line-height: 1.3;
+}
+
+.dcard-save-time {
+  font-size: 14px;
+  color: var(--title-color);
+  opacity: 0.5;
+  line-height: 1;
 }
 
 @keyframes spin {

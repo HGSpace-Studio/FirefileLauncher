@@ -80,6 +80,7 @@ pub fn run() {
             launcher::get_crash_report,
             launcher::clear_crash_report,
             launcher::open_log_folder,
+            launcher::open_instance_game_folder,
             launcher::export_crash_log,
             launcher::read_image_file,
             launcher::start_microsoft_auth,
@@ -87,6 +88,7 @@ pub fn run() {
             launcher::get_auth_servers,
             launcher::add_auth_server,
             launcher::remove_auth_server,
+            launcher::get_instance_card_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
