@@ -155,11 +155,21 @@ watch(dockTask, (n, o) => {
   const name = currentInstanceName.value
   if (!name) return
   const stats = ensureStats(name)
-  if (n?.status === 'launching' && (!o || o.status === 'idle' || o.status === 'exited' || o.status === 'error')) {
+  if (n?.status === 'launching' && (!o || o.status === 'idle' || o.status === 'exited' || o.status === 'error' || o.status === 'crashed')) {
     stats.currentSessionStart = Date.now()
     saveStats()
   }
-  if (o && (o.status === 'running' || o.status === 'launching') && n && (n.status === 'exited' || n.status === 'error')) {
+  if (o && (o.status === 'running' || o.status === 'launching') && n && (n.status === 'exited' || n.status === 'error' || n.status === 'crashed')) {
+    if (stats.currentSessionStart) {
+      const dur = Math.floor((Date.now() - stats.currentSessionStart) / 1000)
+      stats.lastPlayDuration = dur
+      stats.lastPlayTime = fmtDate(new Date())
+      stats.totalPlayTime += dur
+      stats.currentSessionStart = null
+      saveStats()
+    }
+  }
+  if (o && (o.status === 'running' || o.status === 'launching') && !n) {
     if (stats.currentSessionStart) {
       const dur = Math.floor((Date.now() - stats.currentSessionStart) / 1000)
       stats.lastPlayDuration = dur
@@ -475,14 +485,18 @@ onMounted(async () => {
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 html { border-radius: 16px; overflow: hidden; }
-@font-face {
-  font-family: "HarmonyOS Sans";
-  src: url("./assets/fonts/HarmonyOS_Sans_Regular.ttf") format("truetype");
-  font-weight: 400;
-  font-style: normal;
-}
+@font-face { font-family: "MiSans"; src: url("./assets/fonts/MiSans-Thin.ttf") format("truetype"); font-weight: 100; font-style: normal; }
+@font-face { font-family: "MiSans"; src: url("./assets/fonts/MiSans-ExtraLight.ttf") format("truetype"); font-weight: 200; font-style: normal; }
+@font-face { font-family: "MiSans"; src: url("./assets/fonts/MiSans-Light.ttf") format("truetype"); font-weight: 300; font-style: normal; }
+@font-face { font-family: "MiSans"; src: url("./assets/fonts/MiSans-Normal.ttf") format("truetype"); font-weight: 350; font-style: normal; }
+@font-face { font-family: "MiSans"; src: url("./assets/fonts/MiSans-Regular.ttf") format("truetype"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "MiSans"; src: url("./assets/fonts/MiSans-Medium.ttf") format("truetype"); font-weight: 500; font-style: normal; }
+@font-face { font-family: "MiSans"; src: url("./assets/fonts/MiSans-Demibold.ttf") format("truetype"); font-weight: 600; font-style: normal; }
+@font-face { font-family: "MiSans"; src: url("./assets/fonts/MiSans-Semibold.ttf") format("truetype"); font-weight: 650; font-style: normal; }
+@font-face { font-family: "MiSans"; src: url("./assets/fonts/MiSans-Bold.ttf") format("truetype"); font-weight: 700; font-style: normal; }
+@font-face { font-family: "MiSans"; src: url("./assets/fonts/MiSans-Heavy.ttf") format("truetype"); font-weight: 800; font-style: normal; }
 body {
-  font-family: var(--app-font, "HarmonyOS Sans"), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--app-font, "MiSans"), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   overflow: hidden; height: 100vh; background: #1a1a1e;
 }
 .root {
@@ -673,7 +687,7 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
-  z-index: 50;
+  z-index: 40;
 }
 
 .slaunch {
